@@ -41,6 +41,8 @@ pub enum Error {
     InvalidAuthSubnegotiation(u8),
     #[error("Invalid fragment id: {0:x}")]
     InvalidFragmentId(u8),
+    #[error("Unsupported authentication method: {0:?}")]
+    UnsupportedAuthMethod(AuthMethod),
     #[error("Wrong SOCKS version: {expected:?}, actual: {actual:?}")]
     WrongVersion { expected: Version, actual: Version },
     #[error("No acceptable methods")]
@@ -188,7 +190,7 @@ impl TryFrom<u8> for Version {
 }
 
 #[derive(Debug)]
-enum AuthMethod {
+pub enum AuthMethod {
     None = 0x00,
     UsernamePassword = 0x02,
     NoAcceptable = 0xff,
@@ -341,18 +343,21 @@ async fn init(
     match method {
         AuthMethod::None => {}
         AuthMethod::UsernamePassword => {
-            socket.write_u8(0x01).await?;
-            let auth = auth.unwrap();
-            socket.write_string(auth.username).await?;
-            socket.write_string(auth.password).await?;
+            if let Some(auth) = auth {
+                socket.write_u8(0x01).await?;
+                socket.write_string(auth.username).await?;
+                socket.write_string(auth.password).await?;
 
-            let subnegotiation = socket.read_u8().await?;
-            if subnegotiation != 0x01 {
-                return Err(Error::InvalidAuthSubnegotiation(subnegotiation));
-            }
-            let status = socket.read_u8().await?;
-            if status != 0x00 {
-                return Err(Error::InvalidAuthStatus(status));
+                let subnegotiation = socket.read_u8().await?;
+                if subnegotiation != 0x01 {
+                    return Err(Error::InvalidAuthSubnegotiation(subnegotiation));
+                }
+                let status = socket.read_u8().await?;
+                if status != 0x00 {
+                    return Err(Error::InvalidAuthStatus(status));
+                }
+            } else {
+                return Err(Error::UnsupportedAuthMethod(method))
             }
         }
         AuthMethod::NoAcceptable => return Err(Error::NoAcceptableMethods),
