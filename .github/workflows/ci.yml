@@ -35,7 +35,7 @@ jobs:
                   override: true
             - run: sudo useradd hyper -p '$1$n16MMBrH$ZFC82eemhUrQB6CfaGiX20'  # `proxy` password
             - run: sudo apt install dante-server
-            - run: danted -D -f .github/workflows/danted.conf
+            - run: sudo danted -D -f .github/workflows/danted.conf
             - uses: actions-rs/cargo@v1
               with:
                   command: test
