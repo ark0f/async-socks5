@@ -132,7 +132,7 @@ trait ReadExt: AsyncReadExt + Unpin {
     async fn read_auth_status(&mut self) -> Result<()> {
         let value = self.read_u8().await?;
         if value != 0x00 {
-            return Err(Error::InvalidAuthStatus(value))
+            return Err(Error::InvalidAuthStatus(value));
         }
         Ok(())
     }
@@ -395,7 +395,7 @@ async fn init(
             socket.read_auth_status().await?;
         }
         AuthMethod::NoAcceptable => return Err(Error::NoAcceptableMethods),
-        _ => return Err(Error::UnsupportedAuthMethod(method))
+        _ => return Err(Error::UnsupportedAuthMethod(method)),
     }
 
     socket.write_u8(Version::Socks5 as u8).await?;
