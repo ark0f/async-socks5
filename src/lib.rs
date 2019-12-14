@@ -271,23 +271,6 @@ pub enum UnsuccessfulReply {
     Unassigned(u8),
 }
 
-impl Into<u8> for Reply {
-    fn into(self) -> u8 {
-        match self {
-            Reply::Successful => 0x00,
-            Reply::Unsuccessful(UnsuccessfulReply::GeneralFailure) => 0x01,
-            Reply::Unsuccessful(UnsuccessfulReply::ConnectionNotAllowedByRules) => 0x02,
-            Reply::Unsuccessful(UnsuccessfulReply::NetworkUnreachable) => 0x03,
-            Reply::Unsuccessful(UnsuccessfulReply::HostUnreachable) => 0x04,
-            Reply::Unsuccessful(UnsuccessfulReply::ConnectionRefused) => 0x05,
-            Reply::Unsuccessful(UnsuccessfulReply::TtlExpired) => 0x06,
-            Reply::Unsuccessful(UnsuccessfulReply::CommandNotSupported) => 0x07,
-            Reply::Unsuccessful(UnsuccessfulReply::AddressTypeNotSupported) => 0x08,
-            Reply::Unsuccessful(UnsuccessfulReply::Unassigned(byte)) => byte,
-        }
-    }
-}
-
 impl From<u8> for Reply {
     fn from(value: u8) -> Self {
         match value {
