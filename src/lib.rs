@@ -74,6 +74,10 @@ trait ReadExt: AsyncReadExt + Unpin {
         }
     }
 
+    async fn read_method(&mut self) -> Result<AuthMethod> {
+        Ok(self.read_u8().await?.try_into()?)
+    }
+
     async fn read_reserved(&mut self) -> Result<()> {
         let value = self.read_u8().await?;
         match value {
@@ -117,6 +121,22 @@ trait ReadExt: AsyncReadExt + Unpin {
         self.read_exact(&mut str).await?;
         let str = String::from_utf8(str)?;
         Ok(str)
+    }
+
+    async fn read_auth_status(&mut self) -> Result<()> {
+        let value = self.read_u8().await?;
+        if value != 0x00 {
+            return Err(Error::InvalidAuthStatus(value))
+        }
+        Ok(())
+    }
+
+    async fn read_auth_subnegotiation(&mut self) -> Result<()> {
+        let value = self.read_u8().await?;
+        if value != 0x00 {
+            return Err(Error::InvalidAuthSubnegotiation(value));
+        }
+        Ok(())
     }
 
     async fn read_final(&mut self) -> Result<TargetAddr> {
@@ -169,6 +189,13 @@ trait WriteExt: AsyncWriteExt + Unpin {
         }
         self.write_u8(bytes.len() as u8).await?;
         self.write_all(bytes).await?;
+        Ok(())
+    }
+
+    async fn write_methods(&mut self, methods: Vec<AuthMethod>) -> Result<()> {
+        self.write_u8(methods.len() as u8).await?;
+        let methods: Vec<u8> = methods.into_iter().map(|method| method as u8).collect();
+        self.write_all(&methods).await?;
         Ok(())
     }
 }
@@ -324,15 +351,14 @@ async fn init(
 
     socket.write_u8(Version::Socks5 as u8).await?;
     let mut methods = Vec::with_capacity(2);
-    methods.push(AuthMethod::None as u8);
+    methods.push(AuthMethod::None);
     if auth.is_some() {
-        methods.push(AuthMethod::UsernamePassword as u8);
+        methods.push(AuthMethod::UsernamePassword);
     }
-    socket.write_u8(methods.len() as u8).await?;
-    socket.write_all(&methods).await?;
+    socket.write_methods(methods).await?;
 
     socket.read_version(Version::Socks5).await?;
-    let method: AuthMethod = socket.read_u8().await?.try_into()?;
+    let method: AuthMethod = socket.read_method().await?;
     match method {
         AuthMethod::None => {}
         AuthMethod::UsernamePassword => {
@@ -341,14 +367,8 @@ async fn init(
                 socket.write_string(auth.username).await?;
                 socket.write_string(auth.password).await?;
 
-                let subnegotiation = socket.read_u8().await?;
-                if subnegotiation != 0x01 {
-                    return Err(Error::InvalidAuthSubnegotiation(subnegotiation));
-                }
-                let status = socket.read_u8().await?;
-                if status != 0x00 {
-                    return Err(Error::InvalidAuthStatus(status));
-                }
+                socket.read_auth_subnegotiation().await?;
+                socket.read_auth_status().await?;
             } else {
                 return Err(Error::UnsupportedAuthMethod(method))
             }
