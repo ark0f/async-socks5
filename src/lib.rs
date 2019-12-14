@@ -27,8 +27,6 @@ pub enum Error {
     ),
     #[error("Invalid SOCKS version: {0:x}")]
     InvalidVersion(u8),
-    #[error("Invalid authentication method: {0:x}")]
-    InvalidAuthMethod(u8),
     #[error("Invalid command: {0:x}")]
     InvalidCommand(u8),
     #[error("Invalid address type: {0:x}")]
@@ -131,7 +129,7 @@ trait ReadExt: AsyncReadExt + Unpin {
         Ok(())
     }
 
-    async fn read_auth_subnegotiation(&mut self) -> Result<()> {
+    async fn read_auth_version(&mut self) -> Result<()> {
         let value = self.read_u8().await?;
         if value != 0x00 {
             return Err(Error::InvalidAuthSubnegotiation(value));
@@ -156,6 +154,19 @@ impl<T: AsyncReadExt + Unpin> ReadExt for T {}
 
 #[async_trait(? Send)]
 trait WriteExt: AsyncWriteExt + Unpin {
+    async fn write_method(&mut self, method: AuthMethod) -> Result<()> {
+        let value = match method {
+            AuthMethod::None => 0x00,
+            AuthMethod::GssApi => 0x01,
+            AuthMethod::UsernamePassword => 0x02,
+            AuthMethod::IanaReserved(value) => value,
+            AuthMethod::Private(value) => value,
+            AuthMethod::NoAcceptable => 0xff,
+        };
+        self.write_u8(value).await?;
+        Ok(())
+    }
+
     async fn write_reserved(&mut self) -> Result<()> {
         self.write_u8(0x00).await?;
         Ok(())
@@ -192,10 +203,16 @@ trait WriteExt: AsyncWriteExt + Unpin {
         Ok(())
     }
 
+    async fn write_auth_version(&mut self) -> Result<()> {
+        self.write_u8(0x01).await?;
+        Ok(())
+    }
+
     async fn write_methods(&mut self, methods: Vec<AuthMethod>) -> Result<()> {
         self.write_u8(methods.len() as u8).await?;
-        let methods: Vec<u8> = methods.into_iter().map(|method| method as u8).collect();
-        self.write_all(&methods).await?;
+        for method in methods {
+            self.write_method(method).await?;
+        }
         Ok(())
     }
 }
@@ -223,9 +240,12 @@ impl TryFrom<u8> for Version {
 
 #[derive(Debug)]
 pub enum AuthMethod {
-    None = 0x00,
-    UsernamePassword = 0x02,
-    NoAcceptable = 0xff,
+    None,
+    GssApi,
+    UsernamePassword,
+    IanaReserved(u8),
+    Private(u8),
+    NoAcceptable,
 }
 
 impl TryFrom<u8> for AuthMethod {
@@ -234,9 +254,11 @@ impl TryFrom<u8> for AuthMethod {
     fn try_from(value: u8) -> Result<Self> {
         match value {
             0x00 => Ok(AuthMethod::None),
+            0x01 => Ok(AuthMethod::GssApi),
             0x02 => Ok(AuthMethod::UsernamePassword),
+            0x03..=0x7f => Ok(AuthMethod::IanaReserved(value)),
+            0x80..=0xfe => Ok(AuthMethod::Private(value)),
             0xff => Ok(AuthMethod::NoAcceptable),
-            _ => Err(Error::InvalidAuthMethod(value)),
         }
     }
 }
@@ -361,19 +383,19 @@ async fn init(
     let method: AuthMethod = socket.read_method().await?;
     match method {
         AuthMethod::None => {}
-        AuthMethod::UsernamePassword => {
-            if let Some(auth) = auth {
-                socket.write_u8(0x01).await?;
-                socket.write_string(auth.username).await?;
-                socket.write_string(auth.password).await?;
+        // FIXME: until if let in match is stabilized
+        AuthMethod::UsernamePassword if auth.is_some() => {
+            let auth = auth.unwrap();
 
-                socket.read_auth_subnegotiation().await?;
-                socket.read_auth_status().await?;
-            } else {
-                return Err(Error::UnsupportedAuthMethod(method))
-            }
+            socket.write_auth_version().await?;
+            socket.write_string(auth.username).await?;
+            socket.write_string(auth.password).await?;
+
+            socket.read_auth_version().await?;
+            socket.read_auth_status().await?;
         }
         AuthMethod::NoAcceptable => return Err(Error::NoAcceptableMethods),
+        _ => return Err(Error::UnsupportedAuthMethod(method))
     }
 
     socket.write_u8(Version::Socks5 as u8).await?;
