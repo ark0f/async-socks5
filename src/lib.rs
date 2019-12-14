@@ -312,7 +312,7 @@ pub enum TargetAddr {
 }
 
 impl TargetAddr {
-    // FIXME: until ToSocketAddrs is not allowed to implement
+    // FIXME: until ToSocketAddrs is allowed to implement
     pub fn to_socket_addr(&self) -> String {
         match self {
             TargetAddr::Ip(addr) => addr.to_string(),
