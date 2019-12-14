@@ -73,7 +73,7 @@ trait ReadExt: AsyncReadExt + Unpin {
     }
 
     async fn read_method(&mut self) -> Result<AuthMethod> {
-        Ok(self.read_u8().await?.try_into()?)
+        Ok(self.read_u8().await?.into())
     }
 
     async fn read_reserved(&mut self) -> Result<()> {
@@ -248,17 +248,15 @@ pub enum AuthMethod {
     NoAcceptable,
 }
 
-impl TryFrom<u8> for AuthMethod {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self> {
+impl From<u8> for AuthMethod {
+    fn from(value: u8) -> Self {
         match value {
-            0x00 => Ok(AuthMethod::None),
-            0x01 => Ok(AuthMethod::GssApi),
-            0x02 => Ok(AuthMethod::UsernamePassword),
-            0x03..=0x7f => Ok(AuthMethod::IanaReserved(value)),
-            0x80..=0xfe => Ok(AuthMethod::Private(value)),
-            0xff => Ok(AuthMethod::NoAcceptable),
+            0x00 => AuthMethod::None,
+            0x01 => AuthMethod::GssApi,
+            0x02 => AuthMethod::UsernamePassword,
+            0x03..=0x7f => AuthMethod::IanaReserved(value),
+            0x80..=0xfe => AuthMethod::Private(value),
+            0xff => AuthMethod::NoAcceptable,
         }
     }
 }
