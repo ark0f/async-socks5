@@ -35,7 +35,7 @@ pub enum Error {
     InvalidReserved(u8),
     #[error("Invalid authentication status: {0:x}")]
     InvalidAuthStatus(u8),
-    #[error("Invalid authentication subnegotiation: {0:x}")]
+    #[error("Invalid authentication version of subnegotiation: {0:x}")]
     InvalidAuthSubnegotiation(u8),
     #[error("Invalid fragment id: {0:x}")]
     InvalidFragmentId(u8),
@@ -121,18 +121,18 @@ trait ReadExt: AsyncReadExt + Unpin {
         Ok(str)
     }
 
-    async fn read_auth_status(&mut self) -> Result<()> {
+    async fn read_auth_version(&mut self) -> Result<()> {
         let value = self.read_u8().await?;
-        if value != 0x00 {
-            return Err(Error::InvalidAuthStatus(value))
+        if value != 0x01 {
+            return Err(Error::InvalidAuthSubnegotiation(value));
         }
         Ok(())
     }
 
-    async fn read_auth_version(&mut self) -> Result<()> {
+    async fn read_auth_status(&mut self) -> Result<()> {
         let value = self.read_u8().await?;
         if value != 0x00 {
-            return Err(Error::InvalidAuthSubnegotiation(value));
+            return Err(Error::InvalidAuthStatus(value))
         }
         Ok(())
     }
