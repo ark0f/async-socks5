@@ -136,6 +136,11 @@ impl<T: AsyncReadExt + Unpin> ReadExt for T {}
 
 #[async_trait(? Send)]
 trait WriteExt: AsyncWriteExt + Unpin {
+    async fn write_reserved(&mut self) -> Result<()> {
+        self.write_u8(0x00).await?;
+        Ok(())
+    }
+
     async fn write_target_addr(&mut self, target_addr: TargetAddr) -> Result<()> {
         match target_addr {
             TargetAddr::Ip(SocketAddr::V4(addr)) => {
@@ -365,7 +370,7 @@ async fn init(
 
     socket.write_u8(Version::Socks5 as u8).await?;
     socket.write_u8(command as u8).await?;
-    socket.write_u8(0x00).await?;
+    socket.write_reserved().await?;
     socket.write_target_addr(addr).await?;
 
     let addr = socket.read_final().await?;
@@ -443,7 +448,9 @@ impl SocksDatagram {
                 + 1 // fragment id
                 + addr.size() + buf.len(),
         );
-        bytes.extend_from_slice(&[0, 0, 0]);
+        bytes.write_reserved().await?;
+        bytes.write_reserved().await?;
+        bytes.push(0x00);
         bytes.write_target_addr(addr).await?;
         bytes.extend_from_slice(buf);
         Ok(self.socket.send_to(&bytes, socket_addr).await?)
