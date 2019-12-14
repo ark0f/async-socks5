@@ -48,7 +48,7 @@ pub enum Error {
     #[error("No acceptable methods")]
     NoAcceptableMethods,
     #[error("Unsuccessful reply: {0:?}")]
-    Response(Reply),
+    Response(UnsuccessfulReply),
     #[error("String length is more than 255 bytes: {0:}")]
     TooLongString(String),
 }
@@ -122,7 +122,7 @@ trait ReadExt: AsyncReadExt + Unpin {
     async fn read_final(&mut self) -> Result<TargetAddr> {
         self.read_version(Version::Socks5).await?;
         let reply: Reply = self.read_u8().await?.into();
-        if reply != Reply::Succeed {
+        if let Reply::Unsuccessful(reply) = reply {
             return Err(Error::Response(reply));
         }
         self.read_reserved().await?;
@@ -253,8 +253,13 @@ impl TryFrom<u8> for Atyp {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub enum Reply {
-    Succeed,
+enum Reply {
+    Successful,
+    Unsuccessful(UnsuccessfulReply),
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum UnsuccessfulReply {
     GeneralFailure,
     ConnectionNotAllowedByRules,
     NetworkUnreachable,
@@ -269,16 +274,16 @@ pub enum Reply {
 impl Into<u8> for Reply {
     fn into(self) -> u8 {
         match self {
-            Reply::Succeed => 0x00,
-            Reply::GeneralFailure => 0x01,
-            Reply::ConnectionNotAllowedByRules => 0x02,
-            Reply::NetworkUnreachable => 0x03,
-            Reply::HostUnreachable => 0x04,
-            Reply::ConnectionRefused => 0x05,
-            Reply::TtlExpired => 0x06,
-            Reply::CommandNotSupported => 0x07,
-            Reply::AddressTypeNotSupported => 0x08,
-            Reply::Unassigned(byte) => byte,
+            Reply::Successful => 0x00,
+            Reply::Unsuccessful(UnsuccessfulReply::GeneralFailure) => 0x01,
+            Reply::Unsuccessful(UnsuccessfulReply::ConnectionNotAllowedByRules) => 0x02,
+            Reply::Unsuccessful(UnsuccessfulReply::NetworkUnreachable) => 0x03,
+            Reply::Unsuccessful(UnsuccessfulReply::HostUnreachable) => 0x04,
+            Reply::Unsuccessful(UnsuccessfulReply::ConnectionRefused) => 0x05,
+            Reply::Unsuccessful(UnsuccessfulReply::TtlExpired) => 0x06,
+            Reply::Unsuccessful(UnsuccessfulReply::CommandNotSupported) => 0x07,
+            Reply::Unsuccessful(UnsuccessfulReply::AddressTypeNotSupported) => 0x08,
+            Reply::Unsuccessful(UnsuccessfulReply::Unassigned(byte)) => byte,
         }
     }
 }
@@ -286,16 +291,16 @@ impl Into<u8> for Reply {
 impl From<u8> for Reply {
     fn from(value: u8) -> Self {
         match value {
-            0x00 => Reply::Succeed,
-            0x01 => Reply::GeneralFailure,
-            0x02 => Reply::ConnectionNotAllowedByRules,
-            0x03 => Reply::NetworkUnreachable,
-            0x04 => Reply::HostUnreachable,
-            0x05 => Reply::ConnectionRefused,
-            0x06 => Reply::TtlExpired,
-            0x07 => Reply::CommandNotSupported,
-            0x08 => Reply::AddressTypeNotSupported,
-            _ => Reply::Unassigned(value),
+            0x00 => Reply::Successful,
+            0x01 => Reply::Unsuccessful(UnsuccessfulReply::GeneralFailure),
+            0x02 => Reply::Unsuccessful(UnsuccessfulReply::ConnectionNotAllowedByRules),
+            0x03 => Reply::Unsuccessful(UnsuccessfulReply::NetworkUnreachable),
+            0x04 => Reply::Unsuccessful(UnsuccessfulReply::HostUnreachable),
+            0x05 => Reply::Unsuccessful(UnsuccessfulReply::ConnectionRefused),
+            0x06 => Reply::Unsuccessful(UnsuccessfulReply::TtlExpired),
+            0x07 => Reply::Unsuccessful(UnsuccessfulReply::CommandNotSupported),
+            0x08 => Reply::Unsuccessful(UnsuccessfulReply::AddressTypeNotSupported),
+            _ => Reply::Unsuccessful(UnsuccessfulReply::Unassigned(value)),
         }
     }
 }
