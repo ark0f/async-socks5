@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use std::{
-    convert::{TryFrom, TryInto},
     io::Cursor,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
     string::FromUtf8Error,
@@ -61,7 +60,12 @@ pub struct Auth {
 #[async_trait(? Send)]
 trait ReadExt: AsyncReadExt + Unpin {
     async fn read_version(&mut self, cmp: Version) -> Result<()> {
-        let version: Version = self.read_u8().await?.try_into()?;
+        let value = self.read_u8().await?;
+        let version = match value {
+            0x04 => Version::Socks4,
+            0x05 => Version::Socks5,
+            _ => return Err(Error::InvalidVersion(value)),
+        };
         if version == cmp {
             Ok(())
         } else {
@@ -73,7 +77,38 @@ trait ReadExt: AsyncReadExt + Unpin {
     }
 
     async fn read_method(&mut self) -> Result<AuthMethod> {
-        Ok(self.read_u8().await?.into())
+        let value = self.read_u8().await?;
+        let method = match value {
+            0x00 => AuthMethod::None,
+            0x01 => AuthMethod::GssApi,
+            0x02 => AuthMethod::UsernamePassword,
+            0x03..=0x7f => AuthMethod::IanaReserved(value),
+            0x80..=0xfe => AuthMethod::Private(value),
+            0xff => AuthMethod::NoAcceptable,
+        };
+        Ok(method)
+    }
+
+    async fn read_command(&mut self) -> Result<Command> {
+        let value = self.read_u8().await?;
+        let command = match value {
+            0x01 => Command::Connect,
+            0x02 => Command::Bind,
+            0x03 => Command::UdpAssociated,
+            _ => return Err(Error::InvalidCommand(value)),
+        };
+        Ok(command)
+    }
+
+    async fn read_atyp(&mut self) -> Result<Atyp> {
+        let value = self.read_u8().await?;
+        let atyp = match value {
+            0x01 => Atyp::V4,
+            0x03 => Atyp::Domain,
+            0x04 => Atyp::V6,
+            _ => return Err(Error::InvalidAtyp(value)),
+        };
+        Ok(atyp)
     }
 
     async fn read_reserved(&mut self) -> Result<()> {
@@ -84,8 +119,25 @@ trait ReadExt: AsyncReadExt + Unpin {
         }
     }
 
+    async fn read_reply(&mut self) -> Result<Reply> {
+        let value = self.read_u8().await?;
+        let reply = match value {
+            0x00 => Reply::Successful,
+            0x01 => Reply::Unsuccessful(UnsuccessfulReply::GeneralFailure),
+            0x02 => Reply::Unsuccessful(UnsuccessfulReply::ConnectionNotAllowedByRules),
+            0x03 => Reply::Unsuccessful(UnsuccessfulReply::NetworkUnreachable),
+            0x04 => Reply::Unsuccessful(UnsuccessfulReply::HostUnreachable),
+            0x05 => Reply::Unsuccessful(UnsuccessfulReply::ConnectionRefused),
+            0x06 => Reply::Unsuccessful(UnsuccessfulReply::TtlExpired),
+            0x07 => Reply::Unsuccessful(UnsuccessfulReply::CommandNotSupported),
+            0x08 => Reply::Unsuccessful(UnsuccessfulReply::AddressTypeNotSupported),
+            _ => Reply::Unsuccessful(UnsuccessfulReply::Unassigned(value)),
+        };
+        Ok(reply)
+    }
+
     async fn read_target_addr(&mut self) -> Result<TargetAddr> {
-        let atyp: Atyp = self.read_u8().await?.try_into()?;
+        let atyp: Atyp = self.read_atyp().await?;
         let addr = match atyp {
             Atyp::V4 => {
                 let mut ip = [0; 4];
@@ -139,7 +191,7 @@ trait ReadExt: AsyncReadExt + Unpin {
 
     async fn read_final(&mut self) -> Result<TargetAddr> {
         self.read_version(Version::Socks5).await?;
-        let reply: Reply = self.read_u8().await?.into();
+        let reply: Reply = self.read_reply().await?;
         if let Reply::Unsuccessful(reply) = reply {
             return Err(Error::Response(reply));
         }
@@ -154,6 +206,15 @@ impl<T: AsyncReadExt + Unpin> ReadExt for T {}
 
 #[async_trait(? Send)]
 trait WriteExt: AsyncWriteExt + Unpin {
+    async fn write_version(&mut self, version: Version) -> Result<()> {
+        let value = match version {
+            Version::Socks4 => 0x04,
+            Version::Socks5 => 0x05,
+        };
+        self.write_u8(value).await?;
+        Ok(())
+    }
+
     async fn write_method(&mut self, method: AuthMethod) -> Result<()> {
         let value = match method {
             AuthMethod::None => 0x00,
@@ -167,6 +228,26 @@ trait WriteExt: AsyncWriteExt + Unpin {
         Ok(())
     }
 
+    async fn write_command(&mut self, command: Command) -> Result<()> {
+        let value = match command {
+            Command::Connect => 0x01,
+            Command::Bind => 0x02,
+            Command::UdpAssociated => 0x03,
+        };
+        self.write_u8(value).await?;
+        Ok(())
+    }
+
+    async fn write_atyp(&mut self, atyp: Atyp) -> Result<()> {
+        let value = match atyp {
+            Atyp::V4 => 0x01,
+            Atyp::Domain => 0x03,
+            Atyp::V6 => 0x4,
+        };
+        self.write_u8(value).await?;
+        Ok(())
+    }
+
     async fn write_reserved(&mut self) -> Result<()> {
         self.write_u8(0x00).await?;
         Ok(())
@@ -175,17 +256,17 @@ trait WriteExt: AsyncWriteExt + Unpin {
     async fn write_target_addr(&mut self, target_addr: TargetAddr) -> Result<()> {
         match target_addr {
             TargetAddr::Ip(SocketAddr::V4(addr)) => {
-                self.write_u8(Atyp::V4 as u8).await?;
+                self.write_atyp(Atyp::V4).await?;
                 self.write_all(&addr.ip().octets()).await?;
                 self.write_u16(addr.port()).await?;
             }
             TargetAddr::Ip(SocketAddr::V6(addr)) => {
-                self.write_u8(Atyp::V6 as u8).await?;
+                self.write_atyp(Atyp::V6).await?;
                 self.write_all(&addr.ip().octets()).await?;
                 self.write_u16(addr.port()).await?;
             }
             TargetAddr::Domain(domain, port) => {
-                self.write_u8(Atyp::Domain as u8).await?;
+                self.write_atyp(Atyp::Domain).await?;
                 self.write_string(domain).await?;
                 self.write_u16(port).await?;
             }
@@ -222,20 +303,8 @@ impl<T: AsyncWriteExt + Unpin> WriteExt for T {}
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Version {
-    Socks4 = 0x04,
-    Socks5 = 0x05,
-}
-
-impl TryFrom<u8> for Version {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self> {
-        match value {
-            0x04 => Ok(Version::Socks4),
-            0x05 => Ok(Version::Socks5),
-            _ => Err(Error::InvalidVersion(value)),
-        }
-    }
+    Socks4,
+    Socks5,
 }
 
 #[derive(Debug)]
@@ -248,55 +317,16 @@ pub enum AuthMethod {
     NoAcceptable,
 }
 
-impl From<u8> for AuthMethod {
-    fn from(value: u8) -> Self {
-        match value {
-            0x00 => AuthMethod::None,
-            0x01 => AuthMethod::GssApi,
-            0x02 => AuthMethod::UsernamePassword,
-            0x03..=0x7f => AuthMethod::IanaReserved(value),
-            0x80..=0xfe => AuthMethod::Private(value),
-            0xff => AuthMethod::NoAcceptable,
-        }
-    }
-}
-
 enum Command {
-    Connect = 0x01,
-    Bind = 0x02,
-    UdpAssociated = 0x03,
-}
-
-impl TryFrom<u8> for Command {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self> {
-        match value {
-            0x01 => Ok(Command::Connect),
-            0x02 => Ok(Command::Bind),
-            0x03 => Ok(Command::UdpAssociated),
-            _ => Err(Error::InvalidCommand(value)),
-        }
-    }
+    Connect,
+    Bind,
+    UdpAssociated,
 }
 
 enum Atyp {
-    V4 = 0x01,
-    Domain = 0x03,
-    V6 = 0x04,
-}
-
-impl TryFrom<u8> for Atyp {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self> {
-        match value {
-            0x01 => Ok(Atyp::V4),
-            0x03 => Ok(Atyp::Domain),
-            0x04 => Ok(Atyp::V6),
-            _ => Err(Error::InvalidAtyp(value)),
-        }
-    }
+    V4,
+    Domain,
+    V6,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -316,23 +346,6 @@ pub enum UnsuccessfulReply {
     CommandNotSupported,
     AddressTypeNotSupported,
     Unassigned(u8),
-}
-
-impl From<u8> for Reply {
-    fn from(value: u8) -> Self {
-        match value {
-            0x00 => Reply::Successful,
-            0x01 => Reply::Unsuccessful(UnsuccessfulReply::GeneralFailure),
-            0x02 => Reply::Unsuccessful(UnsuccessfulReply::ConnectionNotAllowedByRules),
-            0x03 => Reply::Unsuccessful(UnsuccessfulReply::NetworkUnreachable),
-            0x04 => Reply::Unsuccessful(UnsuccessfulReply::HostUnreachable),
-            0x05 => Reply::Unsuccessful(UnsuccessfulReply::ConnectionRefused),
-            0x06 => Reply::Unsuccessful(UnsuccessfulReply::TtlExpired),
-            0x07 => Reply::Unsuccessful(UnsuccessfulReply::CommandNotSupported),
-            0x08 => Reply::Unsuccessful(UnsuccessfulReply::AddressTypeNotSupported),
-            _ => Reply::Unsuccessful(UnsuccessfulReply::Unassigned(value)),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -369,7 +382,7 @@ async fn init(
 ) -> Result<TargetAddr> {
     let mut socket = BufReader::new(socket);
 
-    socket.write_u8(Version::Socks5 as u8).await?;
+    socket.write_version(Version::Socks5).await?;
     let mut methods = Vec::with_capacity(2);
     methods.push(AuthMethod::None);
     if auth.is_some() {
@@ -396,8 +409,8 @@ async fn init(
         _ => return Err(Error::UnsupportedAuthMethod(method)),
     }
 
-    socket.write_u8(Version::Socks5 as u8).await?;
-    socket.write_u8(command as u8).await?;
+    socket.write_version(Version::Socks5).await?;
+    socket.write_command(command).await?;
     socket.write_reserved().await?;
     socket.write_target_addr(addr).await?;
 
