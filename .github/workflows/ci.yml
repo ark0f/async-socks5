@@ -38,8 +38,9 @@ jobs:
             - run: sudo danted -D -f .github/workflows/danted.conf
             - uses: actions-rs/cargo@v1
               with:
-                  command: test
-                  args: --all --all-features
+                  command: build
+                  args: --tests
+            - run: timeout 10 cargo test --all --all-features
     rustfmt:
         runs-on: ubuntu-latest
         steps:
