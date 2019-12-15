@@ -94,7 +94,7 @@ trait ReadExt: AsyncReadExt + Unpin {
         let command = match value {
             0x01 => Command::Connect,
             0x02 => Command::Bind,
-            0x03 => Command::UdpAssociated,
+            0x03 => Command::UdpAssociate,
             _ => return Err(Error::InvalidCommand(value)),
         };
         Ok(command)
@@ -232,7 +232,7 @@ trait WriteExt: AsyncWriteExt + Unpin {
         let value = match command {
             Command::Connect => 0x01,
             Command::Bind => 0x02,
-            Command::UdpAssociated => 0x03,
+            Command::UdpAssociate => 0x03,
         };
         self.write_u8(value).await?;
         Ok(())
@@ -320,7 +320,7 @@ pub enum AuthMethod {
 enum Command {
     Connect,
     Bind,
-    UdpAssociated,
+    UdpAssociate,
 }
 
 enum Atyp {
@@ -468,7 +468,7 @@ impl SocksDatagram {
     ) -> Result<Self> {
         let mut stream = TcpStream::connect(proxy_addr).await?;
         let local_addr = TargetAddr::Ip(SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0));
-        let proxy_addr = init(&mut stream, Command::UdpAssociated, local_addr, auth).await?;
+        let proxy_addr = init(&mut stream, Command::UdpAssociate, local_addr, auth).await?;
         let socket = UdpSocket::bind(target_addr).await?;
         socket.connect(proxy_addr.to_socket_addr()).await?;
         Ok(Self {
