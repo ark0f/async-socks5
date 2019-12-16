@@ -40,7 +40,7 @@ pub enum Error {
     InvalidFragmentId(u8),
     #[error("Unsupported authentication method: {0:?}")]
     UnsupportedAuthMethod(AuthMethod),
-    #[error("Wrong SOCKS version: {expected:?}, actual: {actual:?}")]
+    #[error("Wrong SOCKS version: {actual:?}, expected: {expected:?}")]
     WrongVersion { expected: Version, actual: Version },
     #[error("No acceptable methods")]
     NoAcceptableMethods,
