@@ -423,7 +423,7 @@ pub async fn connect(
     addr: TargetAddr,
     auth: Option<Auth>,
 ) -> Result<TargetAddr> {
-    Ok(init(socket, Command::Connect, addr, auth).await?)
+    init(socket, Command::Connect, addr, auth).await
 }
 
 pub struct SocksListener {
