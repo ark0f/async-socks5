@@ -560,7 +560,7 @@ mod tests {
         connect(PROXY_ADDR, None).await;
     }
 
-    #[should_panic = "ConnectionNotAllowedByRules"]
+    #[should_panic]
     #[tokio::test]
     async fn connect_no_auth_panic() {
         connect(PROXY_AUTH_ADDR, None).await;
