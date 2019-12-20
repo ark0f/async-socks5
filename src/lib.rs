@@ -356,20 +356,22 @@ pub enum TargetAddr {
 
 impl TargetAddr {
     // FIXME: until ToSocketAddrs is allowed to implement
-    pub fn to_socket_addr(&self) -> String {
+    fn to_socket_addr(&self) -> String {
         match self {
             TargetAddr::Ip(addr) => addr.to_string(),
             TargetAddr::Domain(domain, port) => format!("{}:{}", domain, port),
         }
     }
 
-    pub fn size(&self) -> usize {
+    fn size(&self) -> usize {
         1 + // atyp
         2 + // port
             match self {
                 TargetAddr::Ip(SocketAddr::V4(_)) => 4,
                 TargetAddr::Ip(SocketAddr::V6(_)) => 16,
-                TargetAddr::Domain(domain, _) => domain.len() + 1,
+                TargetAddr::Domain(domain, _) =>
+                    1 // string len
+                    + domain.len(),
             }
     }
 }
@@ -461,15 +463,14 @@ pub struct SocksDatagram {
 }
 
 impl SocksDatagram {
-    pub async fn associate<A: ToSocketAddrs, B: ToSocketAddrs>(
+    pub async fn associate<A: ToSocketAddrs>(
         proxy_addr: A,
-        target_addr: B,
+        socket: UdpSocket,
         auth: Option<Auth>,
     ) -> Result<Self> {
         let mut stream = TcpStream::connect(proxy_addr).await?;
-        let local_addr = TargetAddr::Ip(SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0));
-        let proxy_addr = init(&mut stream, Command::UdpAssociate, local_addr, auth).await?;
-        let socket = UdpSocket::bind(target_addr).await?;
+        let unknown_yet = TargetAddr::Ip(SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0));
+        let proxy_addr = init(&mut stream, Command::UdpAssociate, unknown_yet, auth).await?;
         socket.connect(proxy_addr.to_socket_addr()).await?;
         Ok(Self {
             socket,
@@ -484,23 +485,23 @@ impl SocksDatagram {
 
     pub async fn send_to(&mut self, buf: &[u8], addr: TargetAddr) -> Result<usize> {
         let socket_addr = addr.to_socket_addr();
-        let mut bytes = Vec::with_capacity(
-            2 // reserved
-                + 1 // fragment id
-                + addr.size() + buf.len(),
-        );
-        bytes.write_reserved().await?;
-        bytes.write_reserved().await?;
-        bytes.push(0x00);
-        bytes.write_target_addr(addr).await?;
-        bytes.extend_from_slice(buf);
+        let mut cursor = Cursor::new(Self::alloc_buf(addr.size(), buf.len()));
+        cursor.write_reserved().await?;
+        cursor.write_reserved().await?;
+        cursor.write_u8(0x00).await?; // fragment id
+        cursor.write_target_addr(addr).await?;
+        cursor.write_all(buf).await?;
+        let bytes = cursor.into_inner();
         Ok(self.socket.send_to(&bytes, socket_addr).await?)
     }
 
     pub async fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, TargetAddr)> {
-        let (len, _) = self.socket.recv_from(buf).await?;
-        dbg!("recv_from");
-        let mut cursor = Cursor::new(buf);
+        let mut bytes = Self::alloc_buf(
+            255, // max address size
+            buf.len(),
+        );
+        let (len, _) = self.socket.recv_from(&mut bytes).await?;
+        let mut cursor = Cursor::new(bytes);
         cursor.read_reserved().await?;
         cursor.read_reserved().await?;
         let fragment_id = cursor.read_u8().await?;
@@ -508,7 +509,18 @@ impl SocksDatagram {
             return Err(Error::InvalidFragmentId(fragment_id));
         }
         let addr = cursor.read_target_addr().await?;
+        cursor.read_exact(buf).await?;
         Ok((len, addr))
+    }
+
+    fn alloc_buf(addr_size: usize, buf_len: usize) -> Vec<u8> {
+        vec![
+            0;
+            2 // reserved
+            + 1 // fragment id
+            + addr_size
+            + buf_len
+        ]
     }
 }
 
@@ -516,75 +528,88 @@ impl SocksDatagram {
 mod tests {
     use super::*;
 
-    const PROXY_ADDR: &str = "127.0.0.1:11223";
+    const PROXY_ADDR: &str = "127.0.0.1:1080";
+    const PROXY_AUTH_ADDR: &str = "127.0.0.1:1081";
+    const DATA: &[u8] = b"Hello, world!";
 
-    #[tokio::test]
-    async fn connect() -> Result<()> {
-        let mut socket = TcpStream::connect(PROXY_ADDR).await?;
+    async fn connect(addr: &str, auth: Option<Auth>) {
+        let mut socket = TcpStream::connect(addr).await.unwrap();
         super::connect(
             &mut socket,
             TargetAddr::Domain("google.com".to_string(), 80),
+            auth,
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn connect_auth() {
+        connect(
+            PROXY_AUTH_ADDR,
             Some(Auth {
                 username: "hyper".to_string(),
                 password: "proxy".to_string(),
             }),
         )
-        .await?;
-        Ok(())
-    }
-
-    async fn find_addr() -> Result<TargetAddr> {
-        let mut socket = TcpStream::connect(PROXY_ADDR).await?;
-        let addr = super::connect(
-            &mut socket,
-            TargetAddr::Domain("google.com".to_string(), 80),
-            None,
-        )
-        .await?;
-        Ok(addr)
+        .await;
     }
 
     #[tokio::test]
-    async fn bind() -> Result<()> {
-        let socket = TcpStream::connect(PROXY_ADDR).await?;
-        let addr = find_addr().await?;
-        let listener = SocksListener::bind(socket, addr, None).await?;
+    async fn connect_no_auth() {
+        connect(PROXY_ADDR, None).await;
+    }
 
-        let addr = listener.proxy_addr();
-        let mut end = TcpStream::connect(addr.to_socket_addr()).await?;
-
-        let mut conn = listener.accept().await?.0;
-        conn.write_all(b"hello world").await?;
-
-        let mut result = Vec::new();
-        end.read_to_end(&mut result).await?;
-        assert_eq!(result, b"hello world");
-
-        Ok(())
+    #[should_panic = "ConnectionNotAllowedByRules"]
+    #[tokio::test]
+    async fn connect_no_auth_panic() {
+        connect(PROXY_AUTH_ADDR, None).await;
     }
 
     #[tokio::test]
-    async fn udp_associate() -> Result<()> {
-        const DATA: &[u8] = b"hello world";
+    async fn bind() {
+        let server_addr = TargetAddr::Domain("google.com".to_string(), 80);
 
-        let addr = SocketAddr::new(IpAddr::from([127, 0, 0, 1]), 22334);
+        let client = TcpStream::connect(PROXY_ADDR).await.unwrap();
+        let client = SocksListener::bind(client, server_addr.clone(), None)
+            .await
+            .unwrap();
 
-        let mut socks =
-            SocksDatagram::associate(PROXY_ADDR, (IpAddr::from([127, 0, 0, 1]), 1234), None)
-                .await?;
-        let mut socket = UdpSocket::bind(addr).await?;
+        let server_addr = client.proxy_addr.to_socket_addr();
+        let mut server = TcpStream::connect(&server_addr).await.unwrap();
 
-        let addr = TargetAddr::Ip(addr);
-        let mut msg = vec![0; 3 + DATA.len() + addr.size()];
+        let (mut client, _) = client.accept().await.unwrap();
 
-        socks.send_to(DATA, addr).await?;
-        let (len, addr) = socket.recv_from(&mut msg).await?;
-        assert_eq!(len, msg.len());
+        server.write_all(DATA).await.unwrap();
 
-        socket.send_to(&msg, addr).await?;
-        let (len, _) = socks.recv_from(&mut msg).await?;
-        assert_eq!(len, msg.len());
+        let mut buf = [0; DATA.len()];
+        client.read_exact(&mut buf).await.unwrap();
+        assert_eq!(buf, DATA);
+    }
 
-        Ok(())
+    #[tokio::test]
+    async fn udp_associate() {
+        let client = UdpSocket::bind("127.0.0.1:2345").await.unwrap();
+        let mut client = SocksDatagram::associate(PROXY_ADDR, client, None)
+            .await
+            .unwrap();
+
+        let server_addr: SocketAddr = "127.0.0.1:23456".parse().unwrap();
+        let mut server = UdpSocket::bind(server_addr).await.unwrap();
+        let server_addr = TargetAddr::Ip(server_addr);
+
+        let mut buf = vec![0; DATA.len()];
+
+        client.send_to(DATA, server_addr).await.unwrap();
+        let (len, addr) = server.recv_from(&mut buf).await.unwrap();
+        assert_eq!(len, buf.len());
+        assert_eq!(buf.as_slice(), DATA);
+
+        buf.clear();
+
+        server.send_to(DATA, addr).await.unwrap();
+        let (len, _) = client.recv_from(&mut buf).await.unwrap();
+        assert_eq!(len, buf.len());
+        assert_eq!(&buf[buf.len() - DATA.len()..], DATA);
     }
 }
