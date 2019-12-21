@@ -1,3 +1,5 @@
+#![deny(missing_debug_implementations)]
+
 use async_trait::async_trait;
 use std::{
     io::Cursor,
@@ -52,6 +54,7 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Auth {
     pub username: String,
     pub password: String,
@@ -288,7 +291,7 @@ trait WriteExt: AsyncWriteExt + Unpin {
 #[async_trait(? Send)]
 impl<T: AsyncWriteExt + Unpin> WriteExt for T {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum AuthMethod {
     None,
     GssApi,
@@ -309,13 +312,13 @@ enum Atyp {
     V6,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 enum Reply {
     Successful,
     Unsuccessful(UnsuccessfulReply),
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum UnsuccessfulReply {
     GeneralFailure,
     ConnectionNotAllowedByRules,
@@ -328,7 +331,7 @@ pub enum UnsuccessfulReply {
     Unassigned(u8),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum TargetAddr {
     Ip(SocketAddr),
     Domain(String, u16),
@@ -407,6 +410,7 @@ pub async fn connect(
     init(socket, Command::Connect, addr, auth).await
 }
 
+#[derive(Debug)]
 pub struct SocksListener {
     socket: TcpStream,
     proxy_addr: TargetAddr,
@@ -435,6 +439,7 @@ impl SocksListener {
     }
 }
 
+#[derive(Debug)]
 pub struct SocksDatagram {
     socket: UdpSocket,
     proxy_addr: TargetAddr,
