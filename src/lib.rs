@@ -568,7 +568,7 @@ mod tests {
 
     #[tokio::test]
     async fn bind() {
-        let server_addr = TargetAddr::Domain("google.com".to_string(), 80);
+        let server_addr = TargetAddr::Domain("127.0.0.1".to_string(), 80);
 
         let client = TcpStream::connect(PROXY_ADDR).await.unwrap();
         let client = SocksListener::bind(client, server_addr.clone(), None)

@@ -33,10 +33,11 @@ jobs:
                   profile: minimal
                   toolchain: stable
                   override: true
-            - run: sudo useradd hyper -p '$1$n16MMBrH$ZFC82eemhUrQB6CfaGiX20'  # `proxy` password
-            - run: sudo apt install dante-server
-            - run: sudo danted -D -f .github/workflows/danted.conf
-            - run: sudo danted -D -f .github/workflows/danted_auth.conf
+            - run: sudo add-apt-repository ppa:artyom.h31/3proxy
+            - run: sudo apt update
+            - run: sudo apt install 3proxy
+            - run: nohup cat .github/workflows/proxy.cfg | 3proxy &
+            - run: nohup cat .github/workflows/proxy_auth.cfg | 3proxy &
             - uses: actions-rs/cargo@v1
               with:
                   command: build
