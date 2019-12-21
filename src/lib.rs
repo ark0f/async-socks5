@@ -40,8 +40,8 @@ pub enum Error {
     InvalidFragmentId(u8),
     #[error("Unsupported authentication method: {0:?}")]
     UnsupportedAuthMethod(AuthMethod),
-    #[error("Wrong SOCKS version: {actual:?}, expected: {expected:?}")]
-    WrongVersion { expected: Version, actual: Version },
+    #[error("Wrong SOCKS version is 4, expected 5")]
+    WrongVersion,
     #[error("No acceptable methods")]
     NoAcceptableMethods,
     #[error("Unsuccessful reply: {0:?}")]
@@ -59,20 +59,12 @@ pub struct Auth {
 
 #[async_trait(? Send)]
 trait ReadExt: AsyncReadExt + Unpin {
-    async fn read_version(&mut self, cmp: Version) -> Result<()> {
+    async fn read_version(&mut self) -> Result<()> {
         let value = self.read_u8().await?;
-        let version = match value {
-            0x04 => Version::Socks4,
-            0x05 => Version::Socks5,
-            _ => return Err(Error::InvalidVersion(value)),
-        };
-        if version == cmp {
-            Ok(())
-        } else {
-            Err(Error::WrongVersion {
-                expected: cmp,
-                actual: version,
-            })
+        match value {
+            0x04 => Err(Error::WrongVersion),
+            0x05 => Ok(()),
+            _ => Err(Error::InvalidVersion(value)),
         }
     }
 
@@ -84,7 +76,7 @@ trait ReadExt: AsyncReadExt + Unpin {
             0x02 => AuthMethod::UsernamePassword,
             0x03..=0x7f => AuthMethod::IanaReserved(value),
             0x80..=0xfe => AuthMethod::Private(value),
-            0xff => AuthMethod::NoAcceptable,
+            0xff => return Err(Error::NoAcceptableMethods),
         };
         Ok(method)
     }
@@ -190,7 +182,7 @@ trait ReadExt: AsyncReadExt + Unpin {
     }
 
     async fn read_final(&mut self) -> Result<TargetAddr> {
-        self.read_version(Version::Socks5).await?;
+        self.read_version().await?;
         let reply: Reply = self.read_reply().await?;
         if let Reply::Unsuccessful(reply) = reply {
             return Err(Error::Response(reply));
@@ -206,12 +198,8 @@ impl<T: AsyncReadExt + Unpin> ReadExt for T {}
 
 #[async_trait(? Send)]
 trait WriteExt: AsyncWriteExt + Unpin {
-    async fn write_version(&mut self, version: Version) -> Result<()> {
-        let value = match version {
-            Version::Socks4 => 0x04,
-            Version::Socks5 => 0x05,
-        };
-        self.write_u8(value).await?;
+    async fn write_version(&mut self) -> Result<()> {
+        self.write_u8(0x05).await?;
         Ok(())
     }
 
@@ -222,7 +210,6 @@ trait WriteExt: AsyncWriteExt + Unpin {
             AuthMethod::UsernamePassword => 0x02,
             AuthMethod::IanaReserved(value) => value,
             AuthMethod::Private(value) => value,
-            AuthMethod::NoAcceptable => 0xff,
         };
         self.write_u8(value).await?;
         Ok(())
@@ -301,12 +288,6 @@ trait WriteExt: AsyncWriteExt + Unpin {
 #[async_trait(? Send)]
 impl<T: AsyncWriteExt + Unpin> WriteExt for T {}
 
-#[derive(Debug, Eq, PartialEq)]
-pub enum Version {
-    Socks4,
-    Socks5,
-}
-
 #[derive(Debug)]
 pub enum AuthMethod {
     None,
@@ -314,7 +295,6 @@ pub enum AuthMethod {
     UsernamePassword,
     IanaReserved(u8),
     Private(u8),
-    NoAcceptable,
 }
 
 enum Command {
@@ -384,7 +364,7 @@ async fn init(
 ) -> Result<TargetAddr> {
     let mut socket = BufReader::new(socket);
 
-    socket.write_version(Version::Socks5).await?;
+    socket.write_version().await?;
     let mut methods = Vec::with_capacity(2);
     methods.push(AuthMethod::None);
     if auth.is_some() {
@@ -392,7 +372,7 @@ async fn init(
     }
     socket.write_methods(methods).await?;
 
-    socket.read_version(Version::Socks5).await?;
+    socket.read_version().await?;
     let method: AuthMethod = socket.read_method().await?;
     match method {
         AuthMethod::None => {}
@@ -407,11 +387,10 @@ async fn init(
             socket.read_auth_version().await?;
             socket.read_auth_status().await?;
         }
-        AuthMethod::NoAcceptable => return Err(Error::NoAcceptableMethods),
         _ => return Err(Error::UnsupportedAuthMethod(method)),
     }
 
-    socket.write_version(Version::Socks5).await?;
+    socket.write_version().await?;
     socket.write_command(command).await?;
     socket.write_reserved().await?;
     socket.write_target_addr(addr).await?;
