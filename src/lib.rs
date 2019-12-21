@@ -537,7 +537,6 @@ impl SocksDatagram {
             buf.len(),
         );
         let len = self.socket.recv(&mut bytes).await?;
-        debug_assert!(len <= bytes.len());
 
         let mut cursor = Cursor::new(bytes);
         cursor.read_reserved().await?;
