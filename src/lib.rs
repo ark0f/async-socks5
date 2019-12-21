@@ -484,7 +484,6 @@ impl SocksDatagram {
     }
 
     pub async fn send_to(&mut self, buf: &[u8], addr: TargetAddr) -> Result<usize> {
-        let socket_addr = addr.to_socket_addr();
         let mut cursor = Cursor::new(Self::alloc_buf(addr.size(), buf.len()));
         cursor.write_reserved().await?;
         cursor.write_reserved().await?;
@@ -492,7 +491,7 @@ impl SocksDatagram {
         cursor.write_target_addr(addr).await?;
         cursor.write_all(buf).await?;
         let bytes = cursor.into_inner();
-        Ok(self.socket.send_to(&bytes, socket_addr).await?)
+        Ok(self.socket.send(&bytes).await?)
     }
 
     pub async fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, TargetAddr)> {
@@ -500,7 +499,9 @@ impl SocksDatagram {
             255, // max address size
             buf.len(),
         );
-        let (len, _) = self.socket.recv_from(&mut bytes).await?;
+        let len = self.socket.recv(&mut bytes).await?;
+        debug_assert!(len <= bytes.len());
+
         let mut cursor = Cursor::new(bytes);
         cursor.read_reserved().await?;
         cursor.read_reserved().await?;
@@ -509,8 +510,9 @@ impl SocksDatagram {
             return Err(Error::InvalidFragmentId(fragment_id));
         }
         let addr = cursor.read_target_addr().await?;
+        let header_len = cursor.position() as usize;
         cursor.read_exact(buf).await?;
-        Ok((len, addr))
+        Ok((len - header_len, addr))
     }
 
     fn alloc_buf(addr_size: usize, buf_len: usize) -> Vec<u8> {
@@ -560,7 +562,7 @@ mod tests {
         connect(PROXY_ADDR, None).await;
     }
 
-    #[should_panic]
+    #[should_panic = "ConnectionNotAllowedByRules"]
     #[tokio::test]
     async fn connect_no_auth_panic() {
         connect(PROXY_AUTH_ADDR, None).await;
@@ -599,17 +601,15 @@ mod tests {
         let server_addr = TargetAddr::Ip(server_addr);
 
         let mut buf = vec![0; DATA.len()];
-
         client.send_to(DATA, server_addr).await.unwrap();
         let (len, addr) = server.recv_from(&mut buf).await.unwrap();
         assert_eq!(len, buf.len());
         assert_eq!(buf.as_slice(), DATA);
 
-        buf.clear();
-
+        let mut buf = vec![0; DATA.len()];
         server.send_to(DATA, addr).await.unwrap();
         let (len, _) = client.recv_from(&mut buf).await.unwrap();
         assert_eq!(len, buf.len());
-        assert_eq!(&buf[buf.len() - DATA.len()..], DATA);
+        assert_eq!(buf.as_slice(), DATA);
     }
 }
