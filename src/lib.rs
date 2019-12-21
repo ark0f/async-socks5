@@ -115,21 +115,21 @@ trait ReadExt: AsyncReadExt + Unpin {
         }
     }
 
-    async fn read_reply(&mut self) -> Result<Reply> {
+    async fn read_reply(&mut self) -> Result<()> {
         let value = self.read_u8().await?;
         let reply = match value {
-            0x00 => Reply::Successful,
-            0x01 => Reply::Unsuccessful(UnsuccessfulReply::GeneralFailure),
-            0x02 => Reply::Unsuccessful(UnsuccessfulReply::ConnectionNotAllowedByRules),
-            0x03 => Reply::Unsuccessful(UnsuccessfulReply::NetworkUnreachable),
-            0x04 => Reply::Unsuccessful(UnsuccessfulReply::HostUnreachable),
-            0x05 => Reply::Unsuccessful(UnsuccessfulReply::ConnectionRefused),
-            0x06 => Reply::Unsuccessful(UnsuccessfulReply::TtlExpired),
-            0x07 => Reply::Unsuccessful(UnsuccessfulReply::CommandNotSupported),
-            0x08 => Reply::Unsuccessful(UnsuccessfulReply::AddressTypeNotSupported),
-            _ => Reply::Unsuccessful(UnsuccessfulReply::Unassigned(value)),
+            0x00 => return Ok(()),
+            0x01 => UnsuccessfulReply::GeneralFailure,
+            0x02 => UnsuccessfulReply::ConnectionNotAllowedByRules,
+            0x03 => UnsuccessfulReply::NetworkUnreachable,
+            0x04 => UnsuccessfulReply::HostUnreachable,
+            0x05 => UnsuccessfulReply::ConnectionRefused,
+            0x06 => UnsuccessfulReply::TtlExpired,
+            0x07 => UnsuccessfulReply::CommandNotSupported,
+            0x08 => UnsuccessfulReply::AddressTypeNotSupported,
+            _ => UnsuccessfulReply::Unassigned(value),
         };
-        Ok(reply)
+        Err(Error::Response(reply))
     }
 
     async fn read_target_addr(&mut self) -> Result<TargetAddr> {
@@ -187,10 +187,7 @@ trait ReadExt: AsyncReadExt + Unpin {
 
     async fn read_final(&mut self) -> Result<TargetAddr> {
         self.read_version().await?;
-        let reply: Reply = self.read_reply().await?;
-        if let Reply::Unsuccessful(reply) = reply {
-            return Err(Error::Response(reply));
-        }
+        self.read_reply().await?;
         self.read_reserved().await?;
         let addr = self.read_target_addr().await?;
         Ok(addr)
@@ -317,12 +314,6 @@ enum Atyp {
     V4,
     Domain,
     V6,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
-enum Reply {
-    Successful,
-    Unsuccessful(UnsuccessfulReply),
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
