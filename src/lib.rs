@@ -413,15 +413,15 @@ async fn init(
 /// Do CONNECT command
 /// ```no_run
 /// use tokio::net::TcpStream;
-/// use async_socks::TargetAddr;
+/// use async_socks5::TargetAddr;
 ///
-/// # use async_socks::Result;
+/// # use async_socks5::Result;
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
 ///
 /// let mut stream = TcpStream::connect("my-proxy-server.com").await?;
 /// let target_addr = TargetAddr::Domain("google.com".to_string(), 80);
-/// async_socks::connect(&mut stream, target_addr, None).await?;
+/// async_socks5::connect(&mut stream, target_addr, None).await?;
 ///
 /// # Ok(())
 /// # }
@@ -437,9 +437,9 @@ pub async fn connect(
 /// Do BIND command
 /// ```no_run
 /// use tokio::net::TcpStream;
-/// use async_socks::{TargetAddr, SocksListener};
+/// use async_socks5::{TargetAddr, SocksListener};
 ///
-/// # use async_socks::Result;
+/// # use async_socks5::Result;
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
 ///
