@@ -2,6 +2,14 @@
 name = "async-socks"
 version = "0.1.0"
 authors = ["Arsenii Lyashenko <arsenylyashenko.3@gmail.com>"]
+license = "Apache-2.0 OR MIT"
+description = "Async/await client for SOCKS5 proxy"
+repository = "https://github.com/ark0f/async-socks5"
+documentation = "https://docs.rs/async-socks5"
+readme = "README.md"
+keywords = ["tokio", "async", "socks", "proxy"]
+categories = ["asynchronous", "authentication", "network-programming"]
+include = ["Cargo.toml", "LICENSE-*.md", "src/**/*"]
 edition = "2018"
 
 [dependencies]
