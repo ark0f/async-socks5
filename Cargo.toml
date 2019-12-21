@@ -1,5 +1,5 @@
 [package]
-name = "async-socks"
+name = "async-socks5"
 version = "0.1.0"
 authors = ["Arsenii Lyashenko <arsenylyashenko.3@gmail.com>"]
 license = "Apache-2.0 OR MIT"
