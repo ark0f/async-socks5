@@ -54,6 +54,7 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Required for Username/Password authentication (RFC1929)
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Auth {
     pub username: String,
@@ -291,12 +292,18 @@ trait WriteExt: AsyncWriteExt + Unpin {
 #[async_trait(? Send)]
 impl<T: AsyncWriteExt + Unpin> WriteExt for T {}
 
+/// Proxy authentication method
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum AuthMethod {
+    /// No authentication required
     None,
+    /// GSS API
     GssApi,
+    /// Username/Password authentication (RFC1929)
     UsernamePassword,
+    /// IANA reserved
     IanaReserved(u8),
+    /// Private authentication method
     Private(u8),
 }
 
@@ -331,6 +338,7 @@ pub enum UnsuccessfulReply {
     Unassigned(u8),
 }
 
+/// Target address proxy server will use to connect to
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum TargetAddr {
     Ip(SocketAddr),
@@ -402,6 +410,22 @@ async fn init(
     Ok(addr)
 }
 
+/// Do CONNECT command
+/// ```no_run
+/// use tokio::net::TcpStream;
+/// use async_socks::TargetAddr;
+///
+/// # use async_socks::Result;
+/// # #[tokio::main]
+/// # async fn main() -> Result<()> {
+///
+/// let mut stream = TcpStream::connect("my-proxy-server.com").await?;
+/// let target_addr = TargetAddr::Domain("google.com".to_string(), 80);
+/// async_socks::connect(&mut stream, target_addr, None).await?;
+///
+/// # Ok(())
+/// # }
+/// ```
 pub async fn connect(
     socket: &mut TcpStream,
     addr: TargetAddr,
@@ -410,6 +434,22 @@ pub async fn connect(
     init(socket, Command::Connect, addr, auth).await
 }
 
+/// Do BIND command
+/// ```no_run
+/// use tokio::net::TcpStream;
+/// use async_socks::{TargetAddr, SocksListener};
+///
+/// # use async_socks::Result;
+/// # #[tokio::main]
+/// # async fn main() -> Result<()> {
+///
+/// let mut stream = TcpStream::connect("my-proxy-server.com").await?;
+/// let target_addr = TargetAddr::Domain("ftp-server.org".to_string(), 21);
+/// let (stream, addr) = SocksListener::bind(stream, target_addr, None).await?.accept().await?;
+///
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct SocksListener {
     socket: TcpStream,
@@ -439,6 +479,7 @@ impl SocksListener {
     }
 }
 
+/// Do UDP ASSOCIATE command
 #[derive(Debug)]
 pub struct SocksDatagram {
     socket: UdpSocket,
