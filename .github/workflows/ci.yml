@@ -42,7 +42,7 @@ jobs:
               with:
                   command: build
                   args: --tests
-            - run: RUST_BACKTRACE=1 timeout 10 cargo test --all --all-features
+            - run: RUST_BACKTRACE=1 timeout 10 cargo test --all --all-features -- --test-threads=1
     rustfmt:
         runs-on: ubuntu-latest
         steps:
