@@ -115,6 +115,15 @@ trait ReadExt: AsyncReadExt + Unpin {
         }
     }
 
+    async fn read_fragment_id(&mut self) -> Result<()> {
+        let value = self.read_u8().await?;
+        if value == 0x00 {
+            Ok(())
+        } else {
+            Err(Error::InvalidFragmentId(value))
+        }
+    }
+
     async fn read_reply(&mut self) -> Result<()> {
         let value = self.read_u8().await?;
         let reply = match value {
@@ -237,6 +246,11 @@ trait WriteExt: AsyncWriteExt + Unpin {
     }
 
     async fn write_reserved(&mut self) -> Result<()> {
+        self.write_u8(0x00).await?;
+        Ok(())
+    }
+
+    async fn write_fragment_id(&mut self) -> Result<()> {
         self.write_u8(0x00).await?;
         Ok(())
     }
@@ -515,7 +529,7 @@ impl SocksDatagram {
         let mut cursor = Cursor::new(Self::alloc_buf(addr.size(), buf.len()));
         cursor.write_reserved().await?;
         cursor.write_reserved().await?;
-        cursor.write_u8(0x00).await?; // fragment id
+        cursor.write_fragment_id().await?;
         cursor.write_target_addr(addr).await?;
         cursor.write_all(buf).await?;
         let bytes = cursor.into_inner();
@@ -535,10 +549,7 @@ impl SocksDatagram {
         let mut cursor = Cursor::new(bytes);
         cursor.read_reserved().await?;
         cursor.read_reserved().await?;
-        let fragment_id = cursor.read_u8().await?;
-        if fragment_id != 0 {
-            return Err(Error::InvalidFragmentId(fragment_id));
-        }
+        cursor.read_fragment_id().await?;
         let addr = cursor.read_target_addr().await?;
         let header_len = cursor.position() as usize;
         cursor.read_exact(buf).await?;
