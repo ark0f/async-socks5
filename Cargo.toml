@@ -12,6 +12,9 @@ categories = ["asynchronous", "authentication", "network-programming"]
 include = ["Cargo.toml", "LICENSE-*.md", "src/**/*"]
 edition = "2018"
 
+[badges]
+github = { repository = "https://github.com/ark0f/async-socks5", workflow = "CI" }
+
 [dependencies]
 tokio = { version = "0.2.4", features = ["net", "tcp", "udp", "dns", "io-util"] }
 thiserror = "1.0.9"
