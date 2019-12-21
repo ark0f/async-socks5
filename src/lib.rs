@@ -483,6 +483,18 @@ impl SocksDatagram {
         &self.proxy_addr
     }
 
+    pub fn get_ref(&self) -> &UdpSocket {
+        &self.socket
+    }
+
+    pub fn get_mut(&mut self) -> &mut UdpSocket {
+        &mut self.socket
+    }
+
+    pub fn into_inner(self) -> UdpSocket {
+        self.socket
+    }
+
     pub async fn send_to(&mut self, buf: &[u8], addr: TargetAddr) -> Result<usize> {
         let mut cursor = Cursor::new(Self::alloc_buf(addr.size(), buf.len()));
         cursor.write_reserved().await?;
