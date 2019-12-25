@@ -2,6 +2,7 @@
 
 use async_trait::async_trait;
 use std::{
+    borrow::Cow,
     io::Cursor,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
     string::FromUtf8Error,
@@ -306,9 +307,9 @@ impl<T: AsyncWriteExt + Unpin> WriteExt for T {}
 
 /// Required for a username + password authentication.
 #[derive(Debug, Eq, PartialEq, Clone, Hash)]
-pub struct Auth {
-    pub username: String,
-    pub password: String,
+pub struct Auth<'a> {
+    pub username: Cow<'a, str>,
+    pub password: Cow<'a, str>,
 }
 
 /// A proxy authentication method.
@@ -388,14 +389,14 @@ impl TargetAddr {
     }
 }
 
-/// Public API
+/// Utility functions
 /// ********************************************************************************
 
 async fn init(
     socket: &mut TcpStream,
     command: Command,
     addr: TargetAddr,
-    auth: Option<Auth>,
+    auth: Option<Auth<'_>>,
 ) -> Result<TargetAddr> {
     let mut socket = BufReader::new(socket);
 
@@ -427,6 +428,9 @@ async fn init(
     socket.read_final().await
 }
 
+/// Public API
+/// ********************************************************************************
+
 /// Do CONNECT command
 /// ```no_run
 /// use tokio::net::TcpStream;
@@ -446,7 +450,7 @@ async fn init(
 pub async fn connect(
     socket: &mut TcpStream,
     addr: TargetAddr,
-    auth: Option<Auth>,
+    auth: Option<Auth<'_>>,
 ) -> Result<TargetAddr> {
     init(socket, Command::Connect, addr, auth).await
 }
@@ -477,7 +481,7 @@ impl SocksListener {
     pub async fn bind(
         mut socket: TcpStream,
         addr: TargetAddr,
-        auth: Option<Auth>,
+        auth: Option<Auth<'_>>,
     ) -> Result<SocksListener> {
         let addr = init(&mut socket, Command::Bind, addr, auth).await?;
         Ok(Self {
@@ -508,7 +512,7 @@ impl SocksDatagram {
     pub async fn associate<A: ToSocketAddrs>(
         proxy_addr: A,
         socket: UdpSocket,
-        auth: Option<Auth>,
+        auth: Option<Auth<'_>>,
     ) -> Result<Self> {
         let mut stream = TcpStream::connect(proxy_addr).await?;
         let unknown_yet = TargetAddr::Ip(SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0));
@@ -579,6 +583,9 @@ impl SocksDatagram {
         ]
     }
 }
+
+/// Tests
+/// ********************************************************************************
 
 #[cfg(test)]
 mod tests {
