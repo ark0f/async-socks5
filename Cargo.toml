@@ -1,6 +1,6 @@
 [package]
-name = "async-socks"
-version = "0.1.0"
+name = "async-socks5"
+version = "0.1.1"
 authors = ["Arsenii Lyashenko <arsenylyashenko.3@gmail.com>"]
 license = "Apache-2.0 OR MIT"
 description = "Async/await client for SOCKS5 proxy"
@@ -16,9 +16,9 @@ edition = "2018"
 github-actions = { repository = "https://github.com/ark0f/async-socks5", workflow = "CI" }
 
 [dependencies]
-tokio = { version = "0.2.4", features = ["net", "tcp", "udp", "dns", "io-util"] }
-thiserror = "1.0.9"
-async-trait = "0.1.21"
+tokio = { version = "0.2.3", features = ["net", "tcp", "udp", "dns", "io-util"] }
+thiserror = "1.0.0"
+async-trait = "0.1.8"
 
 [dev-dependencies]
-tokio = { version = "0.2.4", features = ["net", "tcp", "udp", "dns", "io-util", "macros"]}
+tokio = { version = "0.2.3", features = ["net", "tcp", "udp", "dns", "io-util", "macros"]}

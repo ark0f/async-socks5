@@ -114,21 +114,30 @@ trait ReadExt: AsyncReadExt + Unpin {
         }
     }
 
-    async fn read_reply(&mut self) -> Result<Reply> {
+    async fn read_fragment_id(&mut self) -> Result<()> {
         let value = self.read_u8().await?;
+        if value == 0x00 {
+            Ok(())
+        } else {
+            Err(Error::InvalidFragmentId(value))
+        }
+    }
 
-        Ok(match value {
-            0x00 => Reply::Successful,
-            0x01 => Reply::Unsuccessful(UnsuccessfulReply::GeneralFailure),
-            0x02 => Reply::Unsuccessful(UnsuccessfulReply::ConnectionNotAllowedByRules),
-            0x03 => Reply::Unsuccessful(UnsuccessfulReply::NetworkUnreachable),
-            0x04 => Reply::Unsuccessful(UnsuccessfulReply::HostUnreachable),
-            0x05 => Reply::Unsuccessful(UnsuccessfulReply::ConnectionRefused),
-            0x06 => Reply::Unsuccessful(UnsuccessfulReply::TtlExpired),
-            0x07 => Reply::Unsuccessful(UnsuccessfulReply::CommandNotSupported),
-            0x08 => Reply::Unsuccessful(UnsuccessfulReply::AddressTypeNotSupported),
-            _ => Reply::Unsuccessful(UnsuccessfulReply::Unassigned(value)),
-        })
+    async fn read_reply(&mut self) -> Result<()> {
+        let reply = match value {
+            0x00 => return Ok(()),
+            0x01 => UnsuccessfulReply::GeneralFailure,
+            0x02 => UnsuccessfulReply::ConnectionNotAllowedByRules,
+            0x03 => UnsuccessfulReply::NetworkUnreachable,
+            0x04 => UnsuccessfulReply::HostUnreachable,
+            0x05 => UnsuccessfulReply::ConnectionRefused,
+            0x06 => UnsuccessfulReply::TtlExpired,
+            0x07 => UnsuccessfulReply::CommandNotSupported,
+            0x08 => UnsuccessfulReply::AddressTypeNotSupported,
+            _ => UnsuccessfulReply::Unassigned(value),
+        };
+
+        Err(Error::Response(reply))
     }
 
     async fn read_target_addr(&mut self) -> Result<TargetAddr> {
@@ -193,10 +202,7 @@ trait ReadExt: AsyncReadExt + Unpin {
 
     async fn read_final(&mut self) -> Result<TargetAddr> {
         self.read_version().await?;
-        let reply: Reply = self.read_reply().await?;
-        if let Reply::Unsuccessful(reply) = reply {
-            return Err(Error::Response(reply));
-        }
+        self.read_reply().await?;
         self.read_reserved().await?;
         let addr = self.read_target_addr().await?;
         Ok(addr)
@@ -241,8 +247,13 @@ trait WriteExt: AsyncWriteExt + Unpin {
         Ok(())
     }
 
-    async fn write_target_addr(&mut self, value: &TargetAddr) -> Result<()> {
-        match value {
+    async fn write_fragment_id(&mut self) -> Result<()> {
+        self.write_u8(0x00).await?;
+        Ok(())
+    }
+
+    async fn write_target_addr(&mut self, target_addr: TargetAddr) -> Result<()> {
+        match target_addr {
             TargetAddr::Ip(SocketAddr::V4(addr)) => {
                 self.write_atyp(Atyp::V4).await?;
                 self.write_all(&addr.ip().octets()).await?;
@@ -342,12 +353,6 @@ enum Atyp {
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
-enum Reply {
-    Successful,
-    Unsuccessful(UnsuccessfulReply),
-}
-
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
 pub enum UnsuccessfulReply {
     GeneralFailure,
     ConnectionNotAllowedByRules,
@@ -368,6 +373,11 @@ pub enum TargetAddr {
 }
 
 impl TargetAddr {
+    const MAX_SIZE: usize = 1 // atyp 
+        + 1 // domain len 
+        + 255 // domain 
+        + 2; // port
+
     // FIXME: until ToSocketAddrs is allowed to implement
     fn to_socket_addr(&self) -> String {
         match self {
@@ -434,15 +444,15 @@ async fn init(
 /// Do CONNECT command
 /// ```no_run
 /// use tokio::net::TcpStream;
-/// use async_socks::TargetAddr;
+/// use async_socks5::TargetAddr;
 ///
-/// # use async_socks::Result;
+/// # use async_socks5::Result;
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
 ///
 /// let mut stream = TcpStream::connect("my-proxy-server.com").await?;
 /// let target_addr = TargetAddr::Domain("google.com".to_string(), 80);
-/// async_socks::connect(&mut stream, target_addr, None).await?;
+/// async_socks5::connect(&mut stream, target_addr, None).await?;
 ///
 /// # Ok(())
 /// # }
@@ -458,9 +468,9 @@ pub async fn connect(
 /// Do BIND command
 /// ```no_run
 /// use tokio::net::TcpStream;
-/// use async_socks::{TargetAddr, SocksListener};
+/// use async_socks5::{TargetAddr, SocksListener};
 ///
-/// # use async_socks::Result;
+/// # use async_socks5::Result;
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
 ///
@@ -545,7 +555,7 @@ impl SocksDatagram {
         let mut cursor = Cursor::new(Self::alloc_buf(addr.size(), buf.len()));
         cursor.write_reserved().await?;
         cursor.write_reserved().await?;
-        cursor.write_u8(0x00).await?; // fragment id
+        cursor.write_fragment_id().await?;
         cursor.write_target_addr(addr).await?;
         cursor.write_all(buf).await?;
         let bytes = cursor.into_inner();
@@ -553,20 +563,13 @@ impl SocksDatagram {
     }
 
     pub async fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, TargetAddr)> {
-        let mut bytes = Self::alloc_buf(
-            255, // max address size
-            buf.len(),
-        );
+        let mut bytes = Self::alloc_buf(TargetAddr::MAX_SIZE, buf.len());
         let len = self.socket.recv(&mut bytes).await?;
-        debug_assert!(len <= bytes.len());
 
         let mut cursor = Cursor::new(bytes);
         cursor.read_reserved().await?;
         cursor.read_reserved().await?;
-        let fragment_id = cursor.read_u8().await?;
-        if fragment_id != 0 {
-            return Err(Error::InvalidFragmentId(fragment_id));
-        }
+        cursor.read_fragment_id().await?;
         let addr = cursor.read_target_addr().await?;
         let header_len = cursor.position() as usize;
         cursor.read_exact(buf).await?;
