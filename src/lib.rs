@@ -351,6 +351,11 @@ pub enum TargetAddr {
 }
 
 impl TargetAddr {
+    const MAX_SIZE: usize = 1 // atyp 
+        + 1 // domain len 
+        + 255 // domain 
+        + 2; // port
+
     // FIXME: until ToSocketAddrs is allowed to implement
     fn to_socket_addr(&self) -> String {
         match self {
@@ -537,13 +542,7 @@ impl SocksDatagram {
     }
 
     pub async fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, TargetAddr)> {
-        let mut bytes = Self::alloc_buf(
-            1 // atyp 
-                + 1 // domain len 
-                + 255 // domain 
-                + 2, // port
-            buf.len(),
-        );
+        let mut bytes = Self::alloc_buf(TargetAddr::MAX_SIZE, buf.len());
         let len = self.socket.recv(&mut bytes).await?;
 
         let mut cursor = Cursor::new(bytes);
