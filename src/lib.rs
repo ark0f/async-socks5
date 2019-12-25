@@ -634,8 +634,8 @@ mod tests {
             &TargetAddr::Domain("google.com".to_string(), 80),
             auth,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
@@ -647,7 +647,7 @@ mod tests {
                 password: Cow::from("proxy"),
             }),
         )
-            .await;
+        .await;
     }
 
     #[tokio::test]
