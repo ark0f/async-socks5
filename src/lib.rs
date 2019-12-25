@@ -325,10 +325,10 @@ trait WriteExt: AsyncWriteExt + Unpin {
 #[async_trait(? Send)]
 impl<T: AsyncWriteExt + Unpin> WriteExt for T {}
 
-async fn username_password_auth<T>(socket: &mut T, auth: Auth<'_>) -> Result<()>
-where
-    T: ReadExt + WriteExt,
-{
+async fn username_password_auth(
+    socket: &mut BufReader<&mut TcpStream>,
+    auth: Auth<'_>,
+) -> Result<()> {
     socket.write_auth_version().await?;
     socket.write_string(&auth.username).await?;
     socket.write_string(&auth.password).await?;
