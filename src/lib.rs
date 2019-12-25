@@ -156,7 +156,7 @@ trait ReadExt: AsyncReadExt + Unpin {
         Err(Error::Response(reply))
     }
 
-    async fn read_target_addr(&mut self) -> Result<TargetAddr> {
+    async fn read_target_addr(&mut self) -> Result<TargetAddr<'_>> {
         let atyp: Atyp = self.read_atyp().await?;
 
         let addr = match atyp {
@@ -180,7 +180,7 @@ trait ReadExt: AsyncReadExt + Unpin {
             Atyp::Domain => {
                 let str = self.read_string().await?;
                 let port = self.read_u16().await?;
-                TargetAddr::Domain(str, port)
+                TargetAddr::Domain(Cow::from(str), port)
             }
         };
 
@@ -220,7 +220,7 @@ trait ReadExt: AsyncReadExt + Unpin {
         self.read_method().await
     }
 
-    async fn read_final(&mut self) -> Result<TargetAddr> {
+    async fn read_final(&mut self) -> Result<TargetAddr<'_>> {
         self.read_version().await?;
         self.read_reply().await?;
         self.read_reserved().await?;
@@ -271,7 +271,7 @@ trait WriteExt: AsyncWriteExt + Unpin {
         Ok(())
     }
 
-    async fn write_target_addr(&mut self, target_addr: &TargetAddr) -> Result<()> {
+    async fn write_target_addr(&mut self, target_addr: &TargetAddr<'_>) -> Result<()> {
         match target_addr {
             TargetAddr::Ip(SocketAddr::V4(addr)) => {
                 self.write_atyp(Atyp::V4).await?;
@@ -320,7 +320,7 @@ trait WriteExt: AsyncWriteExt + Unpin {
         self.write_methods(&methods).await
     }
 
-    async fn write_final(&mut self, command: Command, addr: &TargetAddr) -> Result<()> {
+    async fn write_final(&mut self, command: Command, addr: &TargetAddr<'_>) -> Result<()> {
         self.write_version().await?;
         self.write_command(command).await?;
         self.write_reserved().await?;
@@ -343,12 +343,12 @@ async fn username_password_auth(
     socket.read_auth_status().await
 }
 
-async fn init(
-    socket: &mut TcpStream,
+async fn init<'a>(
+    socket: &'a mut TcpStream,
     command: Command,
-    addr: &TargetAddr,
-    auth: Option<Auth<'_>>,
-) -> Result<TargetAddr> {
+    addr: &'a TargetAddr<'a>,
+    auth: Option<Auth<'a>>,
+) -> Result<TargetAddr<'static>> {
     let mut socket = BufReader::new(socket);
 
     let mut methods = Vec::with_capacity(2);
@@ -425,12 +425,12 @@ pub enum UnsuccessfulReply {
 
 /// A target address a proxy server will use to connect to.
 #[derive(Debug, Eq, PartialEq, Clone, Hash)]
-pub enum TargetAddr {
+pub enum TargetAddr<'a> {
     Ip(SocketAddr),
-    Domain(String, u16),
+    Domain(Cow<'a, str>, u16),
 }
 
-impl TargetAddr {
+impl TargetAddr<'_> {
     const MAX_SIZE: usize = 1 // atyp
         + 1 // domain len
         + 255 // domain
@@ -481,9 +481,9 @@ impl TargetAddr {
 /// ```
 pub async fn connect(
     socket: &mut TcpStream,
-    addr: &TargetAddr,
+    addr: &TargetAddr<'_>,
     auth: Option<Auth<'_>>,
-) -> Result<TargetAddr> {
+) -> Result<TargetAddr<'static>> {
     init(socket, Command::Connect, addr, auth).await
 }
 
@@ -505,32 +505,34 @@ pub async fn connect(
 /// # }
 /// ```
 #[derive(Debug)]
-pub struct SocksListener {
+pub struct SocksListener<'a> {
     socket: TcpStream,
-    proxy_addr: TargetAddr,
+    proxy_addr: TargetAddr<'a>,
 }
 
-impl SocksListener {
+impl SocksListener<'static> {
     /// Creates `SocksListener`. Performs the [`BIND`] command under the hood.
     ///
     /// [`BIND`]: https://tools.ietf.org/html/rfc1928#page-6
     pub async fn bind(
         mut socket: TcpStream,
-        addr: &TargetAddr,
+        addr: &TargetAddr<'_>,
         auth: Option<Auth<'_>>,
-    ) -> Result<SocksListener> {
+    ) -> Result<Self> {
         let addr = init(&mut socket, Command::Bind, addr, auth).await?;
         Ok(Self {
             socket,
             proxy_addr: addr,
         })
     }
+}
 
+impl SocksListener<'_> {
     pub fn proxy_addr(&self) -> &TargetAddr {
         &self.proxy_addr
     }
 
-    pub async fn accept(mut self) -> Result<(TcpStream, TargetAddr)> {
+    pub async fn accept(mut self) -> Result<(TcpStream, TargetAddr<'static>)> {
         let addr = self.socket.read_final().await?;
         Ok((self.socket, addr))
     }
@@ -538,13 +540,13 @@ impl SocksListener {
 
 /// A UDP socket that sends packets through a proxy.
 #[derive(Debug)]
-pub struct SocksDatagram {
+pub struct SocksDatagram<'a> {
     socket: UdpSocket,
-    proxy_addr: TargetAddr,
+    proxy_addr: TargetAddr<'a>,
     _stream: TcpStream,
 }
 
-impl SocksDatagram {
+impl SocksDatagram<'static> {
     /// Creates `SocksDatagram`. Performs [`UDP ASSOCIATE`] under the hood.
     ///
     /// [`UDP ASSOCIATE`]: https://tools.ietf.org/html/rfc1928#page-7
@@ -552,7 +554,7 @@ impl SocksDatagram {
         proxy_addr: A,
         socket: UdpSocket,
         auth: Option<Auth<'_>>,
-    ) -> Result<Self> {
+    ) -> Result<SocksDatagram<'static>> {
         let mut stream = TcpStream::connect(proxy_addr).await?;
         let unknown_yet = TargetAddr::Ip(SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0));
         let proxy_addr = init(&mut stream, Command::UdpAssociate, &unknown_yet, auth).await?;
@@ -563,7 +565,9 @@ impl SocksDatagram {
             _stream: stream,
         })
     }
+}
 
+impl SocksDatagram<'_> {
     pub fn proxy_addr(&self) -> &TargetAddr {
         &self.proxy_addr
     }
@@ -580,7 +584,7 @@ impl SocksDatagram {
         self.socket
     }
 
-    pub async fn send_to(&mut self, buf: &[u8], addr: &TargetAddr) -> Result<usize> {
+    pub async fn send_to(&mut self, buf: &[u8], addr: &TargetAddr<'_>) -> Result<usize> {
         let mut cursor = Cursor::new(Self::alloc_buf(addr.size(), buf.len()));
         cursor.write_reserved().await?;
         cursor.write_reserved().await?;
@@ -591,7 +595,7 @@ impl SocksDatagram {
         Ok(self.socket.send(&bytes).await?)
     }
 
-    pub async fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, TargetAddr)> {
+    pub async fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, TargetAddr<'_>)> {
         let mut bytes = Self::alloc_buf(TargetAddr::MAX_SIZE, buf.len());
         let len = self.socket.recv(&mut bytes).await?;
 
