@@ -2,7 +2,6 @@
 
 use async_trait::async_trait;
 use std::{
-    convert::{TryFrom, TryInto},
     io::Cursor,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
     string::FromUtf8Error,
@@ -62,6 +61,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 trait ReadExt: AsyncReadExt + Unpin {
     async fn read_version(&mut self) -> Result<()> {
         let value = self.read_u8().await?;
+
         match value {
             0x04 => Err(Error::WrongVersion),
             0x05 => Ok(()),
@@ -70,19 +70,43 @@ trait ReadExt: AsyncReadExt + Unpin {
     }
 
     async fn read_method(&mut self) -> Result<AuthMethod> {
-        self.read_u8().await?.try_into()
+        let value = self.read_u8().await?;
+
+        match value {
+            0x00 => Ok(AuthMethod::None),
+            0x01 => Ok(AuthMethod::GssApi),
+            0x02 => Ok(AuthMethod::UsernamePassword),
+            0x03..=0x7f => Ok(AuthMethod::IanaReserved(value)),
+            0x80..=0xfe => Ok(AuthMethod::Private(value)),
+            0xff => Err(Error::NoAcceptableMethods),
+        }
     }
 
     async fn read_command(&mut self) -> Result<Command> {
-        self.read_u8().await?.try_into()
+        let value = self.read_u8().await?;
+
+        match value {
+            0x01 => Ok(Command::Connect),
+            0x02 => Ok(Command::Bind),
+            0x03 => Ok(Command::UdpAssociate),
+            _ => Err(Error::InvalidCommand(value)),
+        }
     }
 
     async fn read_atyp(&mut self) -> Result<Atyp> {
-        self.read_u8().await?.try_into()
+        let value = self.read_u8().await?;
+
+        match value {
+            0x01 => Ok(Atyp::V4),
+            0x03 => Ok(Atyp::Domain),
+            0x04 => Ok(Atyp::V6),
+            _ => Err(Error::InvalidAtyp(value)),
+        }
     }
 
     async fn read_reserved(&mut self) -> Result<()> {
         let value = self.read_u8().await?;
+
         match value {
             0x00 => Ok(()),
             _ => Err(Error::InvalidReserved(value)),
@@ -90,11 +114,25 @@ trait ReadExt: AsyncReadExt + Unpin {
     }
 
     async fn read_reply(&mut self) -> Result<Reply> {
-        Ok(self.read_u8().await?.into())
+        let value = self.read_u8().await?;
+
+        Ok(match value {
+            0x00 => Reply::Successful,
+            0x01 => Reply::Unsuccessful(UnsuccessfulReply::GeneralFailure),
+            0x02 => Reply::Unsuccessful(UnsuccessfulReply::ConnectionNotAllowedByRules),
+            0x03 => Reply::Unsuccessful(UnsuccessfulReply::NetworkUnreachable),
+            0x04 => Reply::Unsuccessful(UnsuccessfulReply::HostUnreachable),
+            0x05 => Reply::Unsuccessful(UnsuccessfulReply::ConnectionRefused),
+            0x06 => Reply::Unsuccessful(UnsuccessfulReply::TtlExpired),
+            0x07 => Reply::Unsuccessful(UnsuccessfulReply::CommandNotSupported),
+            0x08 => Reply::Unsuccessful(UnsuccessfulReply::AddressTypeNotSupported),
+            _ => Reply::Unsuccessful(UnsuccessfulReply::Unassigned(value)),
+        })
     }
 
     async fn read_target_addr(&mut self) -> Result<TargetAddr> {
         let atyp: Atyp = self.read_atyp().await?;
+
         let addr = match atyp {
             Atyp::V4 => {
                 let mut ip = [0; 4];
@@ -119,6 +157,7 @@ trait ReadExt: AsyncReadExt + Unpin {
                 TargetAddr::Domain(str, port)
             }
         };
+
         Ok(addr)
     }
 
@@ -174,7 +213,15 @@ trait WriteExt: AsyncWriteExt + Unpin {
     }
 
     async fn write_method(&mut self, value: AuthMethod) -> Result<()> {
-        self.write_u8(value.into()).await?;
+        let method = match value {
+            AuthMethod::None => 0x00,
+            AuthMethod::GssApi => 0x01,
+            AuthMethod::UsernamePassword => 0x02,
+            AuthMethod::IanaReserved(value) => value,
+            AuthMethod::Private(value) => value,
+        };
+
+        self.write_u8(method).await?;
         Ok(())
     }
 
@@ -279,51 +326,11 @@ pub enum AuthMethod {
     Private(u8),
 }
 
-impl TryFrom<u8> for AuthMethod {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<AuthMethod> {
-        match value {
-            0x00 => Ok(AuthMethod::None),
-            0x01 => Ok(AuthMethod::GssApi),
-            0x02 => Ok(AuthMethod::UsernamePassword),
-            0x03..=0x7f => Ok(AuthMethod::IanaReserved(value)),
-            0x80..=0xfe => Ok(AuthMethod::Private(value)),
-            0xff => Err(Error::NoAcceptableMethods),
-        }
-    }
-}
-
-impl From<AuthMethod> for u8 {
-    fn from(value: AuthMethod) -> u8 {
-        match value {
-            AuthMethod::None => 0x00,
-            AuthMethod::GssApi => 0x01,
-            AuthMethod::UsernamePassword => 0x02,
-            AuthMethod::IanaReserved(value) => value,
-            AuthMethod::Private(value) => value,
-        }
-    }
-}
-
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
 enum Command {
     Connect = 0x01,
     Bind = 0x02,
     UdpAssociate = 0x03,
-}
-
-impl TryFrom<u8> for Command {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Command> {
-        match value {
-            0x01 => Ok(Command::Connect),
-            0x02 => Ok(Command::Bind),
-            0x03 => Ok(Command::UdpAssociate),
-            _ => Err(Error::InvalidCommand(value)),
-        }
-    }
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
@@ -333,40 +340,10 @@ enum Atyp {
     V6 = 0x4,
 }
 
-impl TryFrom<u8> for Atyp {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Atyp> {
-        match value {
-            0x01 => Ok(Atyp::V4),
-            0x03 => Ok(Atyp::Domain),
-            0x04 => Ok(Atyp::V6),
-            _ => Err(Error::InvalidAtyp(value)),
-        }
-    }
-}
-
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
 enum Reply {
     Successful,
     Unsuccessful(UnsuccessfulReply),
-}
-
-impl From<u8> for Reply {
-    fn from(value: u8) -> Reply {
-        match value {
-            0x00 => Reply::Successful,
-            0x01 => Reply::Unsuccessful(UnsuccessfulReply::GeneralFailure),
-            0x02 => Reply::Unsuccessful(UnsuccessfulReply::ConnectionNotAllowedByRules),
-            0x03 => Reply::Unsuccessful(UnsuccessfulReply::NetworkUnreachable),
-            0x04 => Reply::Unsuccessful(UnsuccessfulReply::HostUnreachable),
-            0x05 => Reply::Unsuccessful(UnsuccessfulReply::ConnectionRefused),
-            0x06 => Reply::Unsuccessful(UnsuccessfulReply::TtlExpired),
-            0x07 => Reply::Unsuccessful(UnsuccessfulReply::CommandNotSupported),
-            0x08 => Reply::Unsuccessful(UnsuccessfulReply::AddressTypeNotSupported),
-            _ => Reply::Unsuccessful(UnsuccessfulReply::Unassigned(value)),
-        }
-    }
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
