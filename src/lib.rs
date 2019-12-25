@@ -1,3 +1,7 @@
+//! This library provides an asynchronous [SOCKS5] implementation.
+//!
+//! [SOCKS5]: https://tools.ietf.org/html/rfc1928
+
 #![deny(missing_debug_implementations)]
 
 use async_trait::async_trait;
@@ -13,9 +17,10 @@ use tokio::{
     net::{TcpStream, ToSocketAddrs, UdpSocket},
 };
 
-/// Error and Result
-/// ********************************************************************************
+// Error and Result
+// ********************************************************************************
 
+/// The library's error type.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0:?}")]
@@ -56,10 +61,11 @@ pub enum Error {
     TooLongString(String),
 }
 
+/// The library's `Result` type alias.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Utilities
-/// ********************************************************************************
+// Utilities
+// ********************************************************************************
 
 #[async_trait(? Send)]
 trait ReadExt: AsyncReadExt + Unpin {
@@ -366,8 +372,8 @@ async fn init(
     socket.read_final().await
 }
 
-/// Types
-/// ********************************************************************************
+// Types
+// ********************************************************************************
 
 /// Required for a username + password authentication.
 #[derive(Debug, Eq, PartialEq, Clone, Hash)]
@@ -403,6 +409,7 @@ enum Atyp {
     V6 = 0x4,
 }
 
+/// An unsuccessful reply from a proxy server.
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
 pub enum UnsuccessfulReply {
     GeneralFailure,
@@ -450,10 +457,13 @@ impl TargetAddr {
     }
 }
 
-/// Public API
-/// ********************************************************************************
+// Public API
+// ********************************************************************************
 
-/// Do CONNECT command
+/// Proxifies a TCP connection. Performs the [`CONNECT`] command under the hood.
+///
+/// [`CONNECT`]: https://tools.ietf.org/html/rfc1928#page-6
+///
 /// ```no_run
 /// use tokio::net::TcpStream;
 /// use async_socks5::TargetAddr;
@@ -477,7 +487,8 @@ pub async fn connect(
     init(socket, Command::Connect, addr, auth).await
 }
 
-/// Do BIND command
+/// A listener that accepts TCP connections through a proxy.
+///
 /// ```no_run
 /// use tokio::net::TcpStream;
 /// use async_socks5::{TargetAddr, SocksListener};
@@ -500,6 +511,9 @@ pub struct SocksListener {
 }
 
 impl SocksListener {
+    /// Creates `SocksListener`. Performs the [`BIND`] command under the hood.
+    ///
+    /// [`BIND`]: https://tools.ietf.org/html/rfc1928#page-6
     pub async fn bind(
         mut socket: TcpStream,
         addr: &TargetAddr,
@@ -522,7 +536,7 @@ impl SocksListener {
     }
 }
 
-/// Do UDP ASSOCIATE command
+/// A UDP socket that sends packets through a proxy.
 #[derive(Debug)]
 pub struct SocksDatagram {
     socket: UdpSocket,
@@ -531,6 +545,9 @@ pub struct SocksDatagram {
 }
 
 impl SocksDatagram {
+    /// Creates `SocksDatagram`. Performs [`UDP ASSOCIATE`] under the hood.
+    ///
+    /// [`UDP ASSOCIATE`]: https://tools.ietf.org/html/rfc1928#page-7
     pub async fn associate<A: ToSocketAddrs>(
         proxy_addr: A,
         socket: UdpSocket,
@@ -599,8 +616,8 @@ impl SocksDatagram {
     }
 }
 
-/// Tests
-/// ********************************************************************************
+// Tests
+// ********************************************************************************
 
 #[cfg(test)]
 mod tests {
