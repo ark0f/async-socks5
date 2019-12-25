@@ -403,7 +403,7 @@ enum Atyp {
     V6 = 0x4,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
 pub enum UnsuccessfulReply {
     GeneralFailure,
     ConnectionNotAllowedByRules,
@@ -417,7 +417,7 @@ pub enum UnsuccessfulReply {
 }
 
 /// A target address a proxy server will use to connect to.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone, Hash)]
 pub enum TargetAddr {
     Ip(SocketAddr),
     Domain(String, u16),
