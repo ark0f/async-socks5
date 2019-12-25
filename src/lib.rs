@@ -57,8 +57,19 @@ pub enum Error {
     NoAcceptableMethods,
     #[error("Unsuccessful reply: {0:?}")]
     Response(UnsuccessfulReply),
-    #[error("String length is more than 255 bytes: {0:}")]
-    TooLongString(String),
+    #[error("{0:?} length is more than 255 bytes")]
+    TooLongString(StringKind),
+}
+
+/// Required to mark which string is too long.
+/// See [`Error::TooLongString`].
+///
+/// [`Error::TooLongString`]: enum.Error.html#variant.TooLongString
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
+pub enum StringKind {
+    Domain,
+    Username,
+    Password,
 }
 
 /// The library's `Result` type alias.
@@ -285,17 +296,17 @@ trait WriteExt: AsyncWriteExt + Unpin {
             }
             TargetAddr::Domain(domain, port) => {
                 self.write_atyp(Atyp::Domain).await?;
-                self.write_string(&domain).await?;
+                self.write_string(&domain, StringKind::Domain).await?;
                 self.write_u16(*port).await?;
             }
         }
         Ok(())
     }
 
-    async fn write_string(&mut self, string: &str) -> Result<()> {
+    async fn write_string(&mut self, string: &str, kind: StringKind) -> Result<()> {
         let bytes = string.as_bytes();
         if bytes.len() > 255 {
-            return Err(Error::TooLongString(string.to_owned()));
+            return Err(Error::TooLongString(kind));
         }
         self.write_u8(bytes.len() as u8).await?;
         self.write_all(bytes).await?;
@@ -336,8 +347,12 @@ async fn username_password_auth(
     auth: Auth<'_>,
 ) -> Result<()> {
     socket.write_auth_version().await?;
-    socket.write_string(&auth.username).await?;
-    socket.write_string(&auth.password).await?;
+    socket
+        .write_string(&auth.username, StringKind::Username)
+        .await?;
+    socket
+        .write_string(&auth.password, StringKind::Password)
+        .await?;
 
     socket.read_auth_version().await?;
     socket.read_auth_status().await
