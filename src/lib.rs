@@ -13,6 +13,9 @@ use tokio::{
     net::{TcpStream, ToSocketAddrs, UdpSocket},
 };
 
+/// Error and Result
+/// ********************************************************************************
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0:?}")]
@@ -55,7 +58,7 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// ReadExt & WriteExt utilities
+/// Utilities
 /// ********************************************************************************
 
 #[async_trait(? Send)]
@@ -73,36 +76,40 @@ trait ReadExt: AsyncReadExt + Unpin {
     async fn read_method(&mut self) -> Result<AuthMethod> {
         let value = self.read_u8().await?;
 
-        match value {
-            0x00 => Ok(AuthMethod::None),
-            0x01 => Ok(AuthMethod::GssApi),
-            0x02 => Ok(AuthMethod::UsernamePassword),
-            0x03..=0x7f => Ok(AuthMethod::IanaReserved(value)),
-            0x80..=0xfe => Ok(AuthMethod::Private(value)),
-            0xff => Err(Error::NoAcceptableMethods),
-        }
+        let method = match value {
+            0x00 => AuthMethod::None,
+            0x01 => AuthMethod::GssApi,
+            0x02 => AuthMethod::UsernamePassword,
+            0x03..=0x7f => AuthMethod::IanaReserved(value),
+            0x80..=0xfe => AuthMethod::Private(value),
+            0xff => return Err(Error::NoAcceptableMethods),
+        };
+
+        Ok(method)
     }
 
     async fn read_command(&mut self) -> Result<Command> {
         let value = self.read_u8().await?;
 
-        match value {
-            0x01 => Ok(Command::Connect),
-            0x02 => Ok(Command::Bind),
-            0x03 => Ok(Command::UdpAssociate),
-            _ => Err(Error::InvalidCommand(value)),
-        }
+        let command = match value {
+            0x01 => Command::Connect,
+            0x02 => Command::Bind,
+            0x03 => Command::UdpAssociate,
+            _ => return Err(Error::InvalidCommand(value)),
+        };
+
+        Ok(command)
     }
 
     async fn read_atyp(&mut self) -> Result<Atyp> {
         let value = self.read_u8().await?;
-
-        match value {
-            0x01 => Ok(Atyp::V4),
-            0x03 => Ok(Atyp::Domain),
-            0x04 => Ok(Atyp::V6),
-            _ => Err(Error::InvalidAtyp(value)),
-        }
+        let atyp = match value {
+            0x01 => Atyp::V4,
+            0x03 => Atyp::Domain,
+            0x04 => Atyp::V6,
+            _ => return Err(Error::InvalidAtyp(value)),
+        };
+        Ok(atyp)
     }
 
     async fn read_reserved(&mut self) -> Result<()> {
@@ -116,6 +123,7 @@ trait ReadExt: AsyncReadExt + Unpin {
 
     async fn read_fragment_id(&mut self) -> Result<()> {
         let value = self.read_u8().await?;
+
         if value == 0x00 {
             Ok(())
         } else {
@@ -183,17 +191,21 @@ trait ReadExt: AsyncReadExt + Unpin {
 
     async fn read_auth_version(&mut self) -> Result<()> {
         let value = self.read_u8().await?;
+
         if value != 0x01 {
             return Err(Error::InvalidAuthSubnegotiation(value));
         }
+
         Ok(())
     }
 
     async fn read_auth_status(&mut self) -> Result<()> {
         let value = self.read_u8().await?;
+
         if value != 0x00 {
             return Err(Error::InvalidAuthStatus(value));
         }
+
         Ok(())
     }
 
@@ -221,26 +233,25 @@ trait WriteExt: AsyncWriteExt + Unpin {
         Ok(())
     }
 
-    async fn write_method(&mut self, value: AuthMethod) -> Result<()> {
-        let method = match value {
+    async fn write_method(&mut self, method: AuthMethod) -> Result<()> {
+        let value = match method {
             AuthMethod::None => 0x00,
             AuthMethod::GssApi => 0x01,
             AuthMethod::UsernamePassword => 0x02,
             AuthMethod::IanaReserved(value) => value,
             AuthMethod::Private(value) => value,
         };
-
-        self.write_u8(method).await?;
+        self.write_u8(value).await?;
         Ok(())
     }
 
-    async fn write_command(&mut self, value: Command) -> Result<()> {
-        self.write_u8(value as u8).await?;
+    async fn write_command(&mut self, command: Command) -> Result<()> {
+        self.write_u8(command as u8).await?;
         Ok(())
     }
 
-    async fn write_atyp(&mut self, value: Atyp) -> Result<()> {
-        self.write_u8(value as u8).await?;
+    async fn write_atyp(&mut self, atyp: Atyp) -> Result<()> {
+        self.write_u8(atyp as u8).await?;
         Ok(())
     }
 
@@ -272,14 +283,13 @@ trait WriteExt: AsyncWriteExt + Unpin {
                 self.write_u16(*port).await?;
             }
         }
-
         Ok(())
     }
 
-    async fn write_string(&mut self, value: &str) -> Result<()> {
-        let bytes = value.as_bytes();
+    async fn write_string(&mut self, string: &str) -> Result<()> {
+        let bytes = string.as_bytes();
         if bytes.len() > 255 {
-            return Err(Error::TooLongString(value.to_owned()));
+            return Err(Error::TooLongString(string.to_owned()));
         }
         self.write_u8(bytes.len() as u8).await?;
         self.write_all(bytes).await?;
@@ -291,9 +301,9 @@ trait WriteExt: AsyncWriteExt + Unpin {
         Ok(())
     }
 
-    async fn write_methods(&mut self, value: &[AuthMethod]) -> Result<()> {
-        self.write_u8(value.len() as u8).await?;
-        for method in value {
+    async fn write_methods(&mut self, methods: &[AuthMethod]) -> Result<()> {
+        self.write_u8(methods.len() as u8).await?;
+        for method in methods {
             self.write_method(*method).await?;
         }
         Ok(())
@@ -301,7 +311,7 @@ trait WriteExt: AsyncWriteExt + Unpin {
 
     async fn write_selection_msg(&mut self, methods: &[AuthMethod]) -> Result<()> {
         self.write_version().await?;
-        self.write_methods(methods).await
+        self.write_methods(&methods).await
     }
 
     async fn write_final(&mut self, command: Command, addr: &TargetAddr) -> Result<()> {
@@ -314,6 +324,47 @@ trait WriteExt: AsyncWriteExt + Unpin {
 
 #[async_trait(? Send)]
 impl<T: AsyncWriteExt + Unpin> WriteExt for T {}
+
+async fn username_password_auth<T>(socket: &mut T, auth: Auth<'_>) -> Result<()>
+where
+    T: ReadExt + WriteExt,
+{
+    socket.write_auth_version().await?;
+    socket.write_string(&auth.username).await?;
+    socket.write_string(&auth.password).await?;
+
+    socket.read_auth_version().await?;
+    socket.read_auth_status().await
+}
+
+async fn init(
+    socket: &mut TcpStream,
+    command: Command,
+    addr: &TargetAddr,
+    auth: Option<Auth<'_>>,
+) -> Result<TargetAddr> {
+    let mut socket = BufReader::new(socket);
+
+    let mut methods = Vec::with_capacity(2);
+    methods.push(AuthMethod::None);
+    if auth.is_some() {
+        methods.push(AuthMethod::UsernamePassword);
+    }
+    socket.write_selection_msg(&methods).await?;
+
+    let method: AuthMethod = socket.read_selection_msg().await?;
+    match method {
+        AuthMethod::None => {}
+        // FIXME: until if let in match is stabilized
+        AuthMethod::UsernamePassword if auth.is_some() => {
+            username_password_auth(&mut socket, auth.unwrap()).await?;
+        }
+        _ => return Err(Error::UnsupportedAuthMethod(method)),
+    }
+
+    socket.write_final(command, &addr).await?;
+    socket.read_final().await
+}
 
 /// Types
 /// ********************************************************************************
@@ -328,33 +379,31 @@ pub struct Auth<'a> {
 /// A proxy authentication method.
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
 pub enum AuthMethod {
-    /// No authentication required
+    /// No authentication required.
     None,
-    /// GSS API
+    /// GSS API.
     GssApi,
-    /// Username/Password authentication (RFC1929)
+    /// A username + password authentication.
     UsernamePassword,
-    /// IANA reserved
+    /// IANA reserved.
     IanaReserved(u8),
-    /// Private authentication method
+    /// A private authentication method.
     Private(u8),
 }
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
 enum Command {
     Connect = 0x01,
     Bind = 0x02,
     UdpAssociate = 0x03,
 }
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
 enum Atyp {
     V4 = 0x01,
     Domain = 0x03,
     V6 = 0x4,
 }
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum UnsuccessfulReply {
     GeneralFailure,
     ConnectionNotAllowedByRules,
@@ -367,17 +416,17 @@ pub enum UnsuccessfulReply {
     Unassigned(u8),
 }
 
-/// Target address proxy server will use to connect to
-#[derive(Debug, Eq, PartialEq, Clone, Hash)]
+/// A target address a proxy server will use to connect to.
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum TargetAddr {
     Ip(SocketAddr),
     Domain(String, u16),
 }
 
 impl TargetAddr {
-    const MAX_SIZE: usize = 1 // atyp 
-        + 1 // domain len 
-        + 255 // domain 
+    const MAX_SIZE: usize = 1 // atyp
+        + 1 // domain len
+        + 255 // domain
         + 2; // port
 
     // FIXME: until ToSocketAddrs is allowed to implement
@@ -401,45 +450,6 @@ impl TargetAddr {
     }
 }
 
-/// Utility functions
-/// ********************************************************************************
-
-async fn init(
-    socket: &mut TcpStream,
-    command: Command,
-    addr: TargetAddr,
-    auth: Option<Auth<'_>>,
-) -> Result<TargetAddr> {
-    let mut socket = BufReader::new(socket);
-
-    let mut methods = Vec::with_capacity(2);
-    methods.push(AuthMethod::None);
-    if auth.is_some() {
-        methods.push(AuthMethod::UsernamePassword);
-    }
-    socket.write_selection_msg(&methods).await?;
-
-    let method: AuthMethod = socket.read_selection_msg().await?;
-    match method {
-        AuthMethod::None => {}
-        // FIXME: until if let in match is stabilized
-        AuthMethod::UsernamePassword if auth.is_some() => {
-            let auth = auth.unwrap();
-
-            socket.write_auth_version().await?;
-            socket.write_string(&auth.username).await?;
-            socket.write_string(&auth.password).await?;
-
-            socket.read_auth_version().await?;
-            socket.read_auth_status().await?;
-        }
-        _ => return Err(Error::UnsupportedAuthMethod(method)),
-    }
-
-    socket.write_final(command, &addr).await?;
-    socket.read_final().await
-}
-
 /// Public API
 /// ********************************************************************************
 
@@ -454,14 +464,14 @@ async fn init(
 ///
 /// let mut stream = TcpStream::connect("my-proxy-server.com").await?;
 /// let target_addr = TargetAddr::Domain("google.com".to_string(), 80);
-/// async_socks5::connect(&mut stream, target_addr, None).await?;
+/// async_socks5::connect(&mut stream, &target_addr, None).await?;
 ///
 /// # Ok(())
 /// # }
 /// ```
 pub async fn connect(
     socket: &mut TcpStream,
-    addr: TargetAddr,
+    addr: &TargetAddr,
     auth: Option<Auth<'_>>,
 ) -> Result<TargetAddr> {
     init(socket, Command::Connect, addr, auth).await
@@ -478,7 +488,7 @@ pub async fn connect(
 ///
 /// let mut stream = TcpStream::connect("my-proxy-server.com").await?;
 /// let target_addr = TargetAddr::Domain("ftp-server.org".to_string(), 21);
-/// let (stream, addr) = SocksListener::bind(stream, target_addr, None).await?.accept().await?;
+/// let (stream, addr) = SocksListener::bind(stream, &target_addr, None).await?.accept().await?;
 ///
 /// # Ok(())
 /// # }
@@ -492,7 +502,7 @@ pub struct SocksListener {
 impl SocksListener {
     pub async fn bind(
         mut socket: TcpStream,
-        addr: TargetAddr,
+        addr: &TargetAddr,
         auth: Option<Auth<'_>>,
     ) -> Result<SocksListener> {
         let addr = init(&mut socket, Command::Bind, addr, auth).await?;
@@ -528,7 +538,7 @@ impl SocksDatagram {
     ) -> Result<Self> {
         let mut stream = TcpStream::connect(proxy_addr).await?;
         let unknown_yet = TargetAddr::Ip(SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0));
-        let proxy_addr = init(&mut stream, Command::UdpAssociate, unknown_yet, auth).await?;
+        let proxy_addr = init(&mut stream, Command::UdpAssociate, &unknown_yet, auth).await?;
         socket.connect(proxy_addr.to_socket_addr()).await?;
         Ok(Self {
             socket,
@@ -600,11 +610,11 @@ mod tests {
     const PROXY_AUTH_ADDR: &str = "127.0.0.1:1081";
     const DATA: &[u8] = b"Hello, world!";
 
-    async fn connect(addr: &str, auth: Option<Auth>) {
+    async fn connect(addr: &str, auth: Option<Auth<'_>>) {
         let mut socket = TcpStream::connect(addr).await.unwrap();
         super::connect(
             &mut socket,
-            TargetAddr::Domain("google.com".to_string(), 80),
+            &TargetAddr::Domain("google.com".to_string(), 80),
             auth,
         )
         .await
@@ -616,8 +626,8 @@ mod tests {
         connect(
             PROXY_AUTH_ADDR,
             Some(Auth {
-                username: "hyper".to_string(),
-                password: "proxy".to_string(),
+                username: Cow::from("hyper"),
+                password: Cow::from("proxy"),
             }),
         )
         .await;
@@ -639,7 +649,7 @@ mod tests {
         let server_addr = TargetAddr::Domain("127.0.0.1".to_string(), 80);
 
         let client = TcpStream::connect(PROXY_ADDR).await.unwrap();
-        let client = SocksListener::bind(client, server_addr.clone(), None)
+        let client = SocksListener::bind(client, &server_addr, None)
             .await
             .unwrap();
 
@@ -667,7 +677,7 @@ mod tests {
         let server_addr = TargetAddr::Ip(server_addr);
 
         let mut buf = vec![0; DATA.len()];
-        client.send_to(DATA, server_addr).await.unwrap();
+        client.send_to(DATA, &server_addr).await.unwrap();
         let (len, addr) = server.recv_from(&mut buf).await.unwrap();
         assert_eq!(len, buf.len());
         assert_eq!(buf.as_slice(), DATA);
