@@ -124,6 +124,8 @@ trait ReadExt: AsyncReadExt + Unpin {
     }
 
     async fn read_reply(&mut self) -> Result<()> {
+        let value = self.read_u8().await?;
+
         let reply = match value {
             0x00 => return Ok(()),
             0x01 => UnsuccessfulReply::GeneralFailure,
@@ -252,7 +254,7 @@ trait WriteExt: AsyncWriteExt + Unpin {
         Ok(())
     }
 
-    async fn write_target_addr(&mut self, target_addr: TargetAddr) -> Result<()> {
+    async fn write_target_addr(&mut self, target_addr: &TargetAddr) -> Result<()> {
         match target_addr {
             TargetAddr::Ip(SocketAddr::V4(addr)) => {
                 self.write_atyp(Atyp::V4).await?;
