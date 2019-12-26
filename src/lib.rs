@@ -14,7 +14,7 @@ use std::{
 use tokio::{
     io,
     io::{AsyncReadExt, AsyncWriteExt, BufReader},
-    net::{TcpStream, ToSocketAddrs, UdpSocket},
+    net::{TcpStream, UdpSocket},
 };
 
 // Error and Result
@@ -613,19 +613,18 @@ impl SocksDatagram {
     /// Creates `SocksDatagram`. Performs [`UDP ASSOCIATE`] under the hood.
     ///
     /// [`UDP ASSOCIATE`]: https://tools.ietf.org/html/rfc1928#page-7
-    pub async fn associate<A: ToSocketAddrs>(
-        proxy_addr: A,
+    pub async fn associate(
+        mut proxy_stream: TcpStream,
         socket: UdpSocket,
         auth: Option<Auth<'_>>,
     ) -> Result<Self> {
-        let mut stream = TcpStream::connect(proxy_addr).await?;
         let unknown_yet = AddrKind::Ip(SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0));
-        let proxy_addr = init(&mut stream, Command::UdpAssociate, &unknown_yet, auth).await?;
+        let proxy_addr = init(&mut proxy_stream, Command::UdpAssociate, &unknown_yet, auth).await?;
         socket.connect(proxy_addr.to_socket_addr()).await?;
         Ok(Self {
             socket,
             proxy_addr,
-            _stream: stream,
+            _stream: proxy_stream,
         })
     }
 
@@ -749,10 +748,9 @@ mod tests {
 
     #[tokio::test]
     async fn udp_associate() {
+        let proxy = TcpStream::connect(PROXY_ADDR).await.unwrap();
         let client = UdpSocket::bind("127.0.0.1:2345").await.unwrap();
-        let mut client = SocksDatagram::associate(PROXY_ADDR, client, None)
-            .await
-            .unwrap();
+        let mut client = SocksDatagram::associate(proxy, client, None).await.unwrap();
 
         let server_addr: SocketAddr = "127.0.0.1:23456".parse().unwrap();
         let mut server = UdpSocket::bind(server_addr).await.unwrap();
