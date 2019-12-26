@@ -17,7 +17,7 @@
     <img src="https://docs.rs/async-socks5/badge.svg">
   </a>
   
-  This library provides an asynchronous [SOCKS5](https://tools.ietf.org/html/rfc1928) implementation.
+  An asynchronous [SOCKS5](https://tools.ietf.org/html/rfc1928) implementation.
 </div>
 
 # [Changelog](https://github.com/ark0f/async-socks5/blob/master/CHANGELOG.md)
