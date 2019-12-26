@@ -49,8 +49,8 @@ pub enum Error {
     InvalidAuthSubnegotiation(u8),
     #[error("Invalid fragment id: {0:x}")]
     InvalidFragmentId(u8),
-    #[error("Unsupported authentication method: {0:?}")]
-    UnsupportedAuthMethod(AuthMethod),
+    #[error("Invalid authentication method: {0:?}")]
+    InvalidAuthMethod(AuthMethod),
     #[error("Wrong SOCKS version is 4, expected 5")]
     WrongVersion,
     #[error("No acceptable methods")]
@@ -380,7 +380,7 @@ async fn init(
         AuthMethod::UsernamePassword if auth.is_some() => {
             username_password_auth(&mut socket, auth.unwrap()).await?;
         }
-        _ => return Err(Error::UnsupportedAuthMethod(method)),
+        _ => return Err(Error::InvalidAuthMethod(method)),
     }
 
     socket.write_final(command, &addr).await?;
