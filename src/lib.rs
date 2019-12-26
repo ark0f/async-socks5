@@ -474,6 +474,54 @@ impl AddrKind {
     }
 }
 
+impl From<(IpAddr, u16)> for AddrKind {
+    fn from(value: (IpAddr, u16)) -> Self {
+        Self::Ip(value.into())
+    }
+}
+
+impl From<(Ipv4Addr, u16)> for AddrKind {
+    fn from(value: (Ipv4Addr, u16)) -> Self {
+        Self::Ip(value.into())
+    }
+}
+
+impl From<(Ipv6Addr, u16)> for AddrKind {
+    fn from(value: (Ipv6Addr, u16)) -> Self {
+        Self::Ip(value.into())
+    }
+}
+
+impl From<(String, u16)> for AddrKind {
+    fn from((domain, port): (String, u16)) -> Self {
+        Self::Domain(domain, port)
+    }
+}
+
+impl From<(&'_ str, u16)> for AddrKind {
+    fn from((domain, port): (&'_ str, u16)) -> Self {
+        Self::Domain(domain.to_owned(), port)
+    }
+}
+
+impl From<SocketAddr> for AddrKind {
+    fn from(value: SocketAddr) -> Self {
+        Self::Ip(value)
+    }
+}
+
+impl From<SocketAddrV4> for AddrKind {
+    fn from(value: SocketAddrV4) -> Self {
+        Self::Ip(value.into())
+    }
+}
+
+impl From<SocketAddrV6> for AddrKind {
+    fn from(value: SocketAddrV6) -> Self {
+        Self::Ip(value.into())
+    }
+}
+
 // Public API
 // ********************************************************************************
 
