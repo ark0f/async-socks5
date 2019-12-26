@@ -475,32 +475,32 @@ impl AddrKind {
 }
 
 impl From<(IpAddr, u16)> for AddrKind {
-    fn from(value: (IpAddr, u16)) -> Self {
-        Self::Ip(SocketAddr::new(value.0, value.1))
+    fn from((ip, port): (IpAddr, u16)) -> Self {
+        Self::Ip(SocketAddr::new(ip, port))
     }
 }
 
 impl From<(Ipv4Addr, u16)> for AddrKind {
-    fn from(value: (Ipv4Addr, u16)) -> Self {
-        Self::Ip(SocketAddr::new(IpAddr::V4(value.0), value.1))
+    fn from((ip, port): (Ipv4Addr, u16)) -> Self {
+        Self::Ip(SocketAddr::new(IpAddr::V4(ip), port))
     }
 }
 
 impl From<(Ipv6Addr, u16)> for AddrKind {
-    fn from(value: (Ipv6Addr, u16)) -> Self {
-        Self::Ip(SocketAddr::new(IpAddr::V6(value.0), value.1))
+    fn from((ip, port): (Ipv6Addr, u16)) -> Self {
+        Self::Ip(SocketAddr::new(IpAddr::V6(ip), port))
     }
 }
 
 impl From<(String, u16)> for AddrKind {
-    fn from(value: (String, u16)) -> Self {
-        Self::Domain(value.0, value.1)
+    fn from((domain, port): (String, u16)) -> Self {
+        Self::Domain(domain, port)
     }
 }
 
 impl From<(&'_ str, u16)> for AddrKind {
-    fn from(value: (&'_ str, u16)) -> Self {
-        Self::Domain(value.0.to_owned(), value.1)
+    fn from((domain, port): (&'_ str, u16)) -> Self {
+        Self::Domain(domain.to_owned(), port)
     }
 }
 
