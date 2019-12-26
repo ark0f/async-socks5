@@ -557,8 +557,8 @@ pub struct Connect<'a> {
 }
 
 impl<'a> Connect<'a> {
-    pub fn with_auth<I: Into<Option<Auth<'a>>>>(mut self, auth: I) -> Self {
-        self.auth = auth.into();
+    pub fn with_auth(&mut self, auth: Auth<'a>) -> &mut Self {
+        self.auth = Some(auth);
         self
     }
 
@@ -617,8 +617,8 @@ pub struct SocksListenerBuilder<'a> {
 }
 
 impl<'a> SocksListenerBuilder<'a> {
-    pub fn with_auth<I: Into<Option<Auth<'a>>>>(mut self, auth: I) -> Self {
-        self.auth = auth.into();
+    pub fn with_auth(&mut self, auth: Auth<'a>) -> &mut Self {
+        self.auth = Some(auth);
         self
     }
 
@@ -721,13 +721,13 @@ pub struct SocksDatagramBuilder<'a> {
 }
 
 impl<'a> SocksDatagramBuilder<'a> {
-    pub fn with_association_addr(mut self, addr: &'a AddrKind) -> Self {
+    pub fn with_association_addr(&mut self, addr: &'a AddrKind) -> &mut Self {
         self.association_addr = Some(addr);
         self
     }
 
-    pub fn with_auth<I: Into<Option<Auth<'a>>>>(mut self, auth: I) -> Self {
-        self.auth = auth.into();
+    pub fn with_auth(&mut self, auth: Auth<'a>) -> &mut Self {
+        self.auth = Some(auth);
         self
     }
 
@@ -775,8 +775,9 @@ mod tests {
 
     async fn connect(addr: &str, auth: Option<Auth<'_>>) {
         let mut socket = TcpStream::connect(addr).await.unwrap();
-        Connect::default()
-            .with_auth(auth)
+        let mut connect = Connect::default();
+        auth.map(|auth| connect.with_auth(auth));
+        connect
             .connect(&mut socket, &("google.com".to_string(), 80).into())
             .await
             .unwrap();
