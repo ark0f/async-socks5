@@ -475,20 +475,20 @@ impl AddrKind {
 }
 
 impl From<(IpAddr, u16)> for AddrKind {
-    fn from((ip, port): (IpAddr, u16)) -> Self {
-        Self::Ip(SocketAddr::new(ip, port))
+    fn from(value: (IpAddr, u16)) -> Self {
+        Self::Ip(value.into())
     }
 }
 
 impl From<(Ipv4Addr, u16)> for AddrKind {
-    fn from((ip, port): (Ipv4Addr, u16)) -> Self {
-        Self::Ip(SocketAddr::new(IpAddr::V4(ip), port))
+    fn from(value: (Ipv4Addr, u16)) -> Self {
+        Self::Ip(value.into())
     }
 }
 
 impl From<(Ipv6Addr, u16)> for AddrKind {
-    fn from((ip, port): (Ipv6Addr, u16)) -> Self {
-        Self::Ip(SocketAddr::new(IpAddr::V6(ip), port))
+    fn from(value: (Ipv6Addr, u16)) -> Self {
+        Self::Ip(value.into())
     }
 }
 
@@ -512,13 +512,13 @@ impl From<SocketAddr> for AddrKind {
 
 impl From<SocketAddrV4> for AddrKind {
     fn from(value: SocketAddrV4) -> Self {
-        Self::Ip(SocketAddr::V4(value))
+        Self::Ip(value.into())
     }
 }
 
 impl From<SocketAddrV6> for AddrKind {
     fn from(value: SocketAddrV6) -> Self {
-        Self::Ip(SocketAddr::V6(value))
+        Self::Ip(value.into())
     }
 }
 
