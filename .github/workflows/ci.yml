@@ -33,15 +33,15 @@ jobs:
                   profile: minimal
                   toolchain: stable
                   override: true
+            - uses: actions-rs/cargo@v1
+              with:
+                  command: build
+                  args: --tests
             - run: sudo add-apt-repository ppa:artyom.h31/3proxy
             - run: sudo apt update
             - run: sudo apt install 3proxy
             - run: nohup cat .github/workflows/proxy.cfg | 3proxy &
             - run: nohup cat .github/workflows/proxy_auth.cfg | 3proxy &
-            - uses: actions-rs/cargo@v1
-              with:
-                  command: build
-                  args: --tests
             - run: RUST_BACKTRACE=1 timeout 10 cargo test --all --all-features -- --test-threads=1
     rustfmt:
         runs-on: ubuntu-latest
