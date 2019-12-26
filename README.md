@@ -20,6 +20,8 @@
   An `async`/`.await` [SOCKS5](https://tools.ietf.org/html/rfc1928) implementation.
 </div>
 
+# [Changelog](https://github.com/ark0f/async-socks5/blob/master/CHANGELOG.md)
+
 # License
 async-socks5 under either of:
 
