@@ -11,6 +11,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
     string::FromUtf8Error,
 };
+use tokio::net::ToSocketAddrs;
 use tokio::{
     io,
     io::{AsyncReadExt, AsyncWriteExt, BufReader},
@@ -537,19 +538,34 @@ impl From<SocketAddrV6> for AddrKind {
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
 ///
-/// let mut stream = TcpStream::connect("my-proxy-server.com").await?;
-/// let target_addr = AddrKind::Domain("google.com".to_string(), 80);
-/// async_socks5::connect(&mut stream, &target_addr, None).await?;
+/// let (socket, addr) = async_socks5::connect("my-proxy-server.com", &("google.com".to_string(), 80).into()).await?;
 ///
 /// # Ok(())
 /// # }
 /// ```
-pub async fn connect(
-    socket: &mut TcpStream,
-    addr: &AddrKind,
-    auth: Option<Auth<'_>>,
-) -> Result<AddrKind> {
-    init(socket, Command::Connect, addr, auth).await
+pub async fn connect<A: ToSocketAddrs>(
+    proxy_addr: A,
+    dst_addr: &AddrKind,
+) -> Result<(TcpStream, AddrKind)> {
+    let mut stream = TcpStream::connect(proxy_addr).await?;
+    let addr = Connect::default().connect(&mut stream, dst_addr).await?;
+    Ok((stream, addr))
+}
+
+#[derive(Debug, Default, Eq, PartialEq, Clone, Hash)]
+pub struct Connect<'a> {
+    auth: Option<Auth<'a>>,
+}
+
+impl<'a> Connect<'a> {
+    pub fn with_auth<I: Into<Option<Auth<'a>>>>(mut self, auth: I) -> Self {
+        self.auth = auth.into();
+        self
+    }
+
+    pub async fn connect(self, socket: &mut TcpStream, addr: &AddrKind) -> Result<AddrKind> {
+        init(socket, Command::Connect, addr, self.auth).await
+    }
 }
 
 /// A listener that accepts TCP connections through a proxy.
@@ -562,9 +578,7 @@ pub async fn connect(
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
 ///
-/// let mut stream = TcpStream::connect("my-proxy-server.com").await?;
-/// let target_addr = AddrKind::Domain("ftp-server.org".to_string(), 21);
-/// let (stream, addr) = SocksListener::bind(stream, &target_addr, None).await?.accept().await?;
+/// let (stream, addr) = SocksListener::bind("my-proxy-server.com", &("ftp-server.org".to_string(), 21).into()).await?.accept().await?;
 ///
 /// # Ok(())
 /// # }
@@ -579,16 +593,13 @@ impl SocksListener {
     /// Creates `SocksListener`. Performs the [`BIND`] command under the hood.
     ///
     /// [`BIND`]: https://tools.ietf.org/html/rfc1928#page-6
-    pub async fn bind(
-        mut socket: TcpStream,
-        addr: &AddrKind,
-        auth: Option<Auth<'_>>,
-    ) -> Result<SocksListener> {
-        let addr = init(&mut socket, Command::Bind, addr, auth).await?;
-        Ok(Self {
-            socket,
-            proxy_addr: addr,
-        })
+    pub async fn bind<A: ToSocketAddrs>(proxy_addr: A, addr: &AddrKind) -> Result<SocksListener> {
+        let stream = TcpStream::connect(proxy_addr).await?;
+        Self::builder().bind(stream, addr).await
+    }
+
+    pub fn builder<'a>() -> SocksListenerBuilder<'a> {
+        SocksListenerBuilder { auth: None }
     }
 
     pub fn proxy_addr(&self) -> &AddrKind {
@@ -598,6 +609,26 @@ impl SocksListener {
     pub async fn accept(mut self) -> Result<(TcpStream, AddrKind)> {
         let addr = self.socket.read_final().await?;
         Ok((self.socket, addr))
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Hash)]
+pub struct SocksListenerBuilder<'a> {
+    auth: Option<Auth<'a>>,
+}
+
+impl<'a> SocksListenerBuilder<'a> {
+    pub fn with_auth<I: Into<Option<Auth<'a>>>>(mut self, auth: I) -> Self {
+        self.auth = auth.into();
+        self
+    }
+
+    pub async fn bind(self, mut socket: TcpStream, addr: &AddrKind) -> Result<SocksListener> {
+        let addr = init(&mut socket, Command::Bind, addr, self.auth).await?;
+        Ok(SocksListener {
+            socket,
+            proxy_addr: addr,
+        })
     }
 }
 
@@ -613,19 +644,23 @@ impl SocksDatagram {
     /// Creates `SocksDatagram`. Performs [`UDP ASSOCIATE`] under the hood.
     ///
     /// [`UDP ASSOCIATE`]: https://tools.ietf.org/html/rfc1928#page-7
-    pub async fn associate(
-        mut proxy_stream: TcpStream,
-        socket: UdpSocket,
-        auth: Option<Auth<'_>>,
+    pub async fn associate<A: ToSocketAddrs, B: ToSocketAddrs>(
+        proxy_addr: A,
+        bind_addr: B,
     ) -> Result<Self> {
-        let unknown_yet = AddrKind::Ip(SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0));
-        let proxy_addr = init(&mut proxy_stream, Command::UdpAssociate, &unknown_yet, auth).await?;
-        socket.connect(proxy_addr.to_socket_addr()).await?;
-        Ok(Self {
-            socket,
-            proxy_addr,
-            _stream: proxy_stream,
-        })
+        Self::builder()
+            .associate(
+                TcpStream::connect(proxy_addr).await?,
+                UdpSocket::bind(bind_addr).await?,
+            )
+            .await
+    }
+
+    pub fn builder<'a>() -> SocksDatagramBuilder<'a> {
+        SocksDatagramBuilder {
+            association_addr: None,
+            auth: None,
+        }
     }
 
     pub fn proxy_addr(&self) -> &AddrKind {
@@ -680,6 +715,54 @@ impl SocksDatagram {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, Clone, Hash)]
+pub struct SocksDatagramBuilder<'a> {
+    association_addr: Option<&'a AddrKind>,
+    auth: Option<Auth<'a>>,
+}
+
+impl<'a> SocksDatagramBuilder<'a> {
+    pub fn with_association_addr(mut self, addr: &'a AddrKind) -> Self {
+        self.association_addr = Some(addr);
+        self
+    }
+
+    pub fn with_auth<I: Into<Option<Auth<'a>>>>(mut self, auth: I) -> Self {
+        self.auth = auth.into();
+        self
+    }
+
+    pub async fn associate(
+        self,
+        mut proxy_stream: TcpStream,
+        socket: UdpSocket,
+    ) -> Result<SocksDatagram> {
+        let proxy_addr = if let Some(association_addr) = self.association_addr {
+            init(
+                &mut proxy_stream,
+                Command::UdpAssociate,
+                association_addr,
+                self.auth,
+            )
+            .await?
+        } else {
+            init(
+                &mut proxy_stream,
+                Command::UdpAssociate,
+                &(IpAddr::from([0, 0, 0, 0]), 0).into(),
+                self.auth,
+            )
+            .await?
+        };
+        socket.connect(proxy_addr.to_socket_addr()).await?;
+        Ok(SocksDatagram {
+            socket,
+            proxy_addr,
+            _stream: proxy_stream,
+        })
+    }
+}
+
 // Tests
 // ********************************************************************************
 
@@ -693,13 +776,11 @@ mod tests {
 
     async fn connect(addr: &str, auth: Option<Auth<'_>>) {
         let mut socket = TcpStream::connect(addr).await.unwrap();
-        super::connect(
-            &mut socket,
-            &AddrKind::Domain("google.com".to_string(), 80),
-            auth,
-        )
-        .await
-        .unwrap();
+        Connect::default()
+            .with_auth(auth)
+            .connect(&mut socket, &("google.com".to_string(), 80).into())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -730,9 +811,7 @@ mod tests {
         let server_addr = AddrKind::Domain("127.0.0.1".to_string(), 80);
 
         let client = TcpStream::connect(PROXY_ADDR).await.unwrap();
-        let client = SocksListener::bind(client, &server_addr, None)
-            .await
-            .unwrap();
+        let client = SocksListener::bind(client, &server_addr).await.unwrap();
 
         let server_addr = client.proxy_addr.to_socket_addr();
         let mut server = TcpStream::connect(&server_addr).await.unwrap();
@@ -748,9 +827,9 @@ mod tests {
 
     #[tokio::test]
     async fn udp_associate() {
-        let proxy = TcpStream::connect(PROXY_ADDR).await.unwrap();
-        let client = UdpSocket::bind("127.0.0.1:2345").await.unwrap();
-        let mut client = SocksDatagram::associate(proxy, client, None).await.unwrap();
+        let mut client = SocksDatagram::associate(PROXY_ADDR, "127.0.0.1:2345")
+            .await
+            .unwrap();
 
         let server_addr: SocketAddr = "127.0.0.1:23456".parse().unwrap();
         let mut server = UdpSocket::bind(server_addr).await.unwrap();
