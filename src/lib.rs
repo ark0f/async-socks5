@@ -810,8 +810,7 @@ mod tests {
     async fn bind() {
         let server_addr = AddrKind::Domain("127.0.0.1".to_string(), 80);
 
-        let client = TcpStream::connect(PROXY_ADDR).await.unwrap();
-        let client = SocksListener::bind(client, &server_addr).await.unwrap();
+        let client = SocksListener::bind(PROXY_ADDR, &server_addr).await.unwrap();
 
         let server_addr = client.proxy_addr.to_socket_addr();
         let mut server = TcpStream::connect(&server_addr).await.unwrap();
