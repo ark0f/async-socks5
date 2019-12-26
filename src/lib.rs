@@ -167,7 +167,7 @@ trait ReadExt: AsyncReadExt + Unpin {
         Err(Error::Response(reply))
     }
 
-    async fn read_target_addr(&mut self) -> Result<TargetAddr> {
+    async fn read_target_addr(&mut self) -> Result<AddrKind> {
         let atyp: Atyp = self.read_atyp().await?;
 
         let addr = match atyp {
@@ -175,13 +175,13 @@ trait ReadExt: AsyncReadExt + Unpin {
                 let mut ip = [0; 4];
                 self.read_exact(&mut ip).await?;
                 let port = self.read_u16().await?;
-                TargetAddr::Ip(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(ip), port)))
+                AddrKind::Ip(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(ip), port)))
             }
             Atyp::V6 => {
                 let mut ip = [0; 16];
                 self.read_exact(&mut ip).await?;
                 let port = self.read_u16().await?;
-                TargetAddr::Ip(SocketAddr::V6(SocketAddrV6::new(
+                AddrKind::Ip(SocketAddr::V6(SocketAddrV6::new(
                     Ipv6Addr::from(ip),
                     port,
                     0,
@@ -191,7 +191,7 @@ trait ReadExt: AsyncReadExt + Unpin {
             Atyp::Domain => {
                 let str = self.read_string().await?;
                 let port = self.read_u16().await?;
-                TargetAddr::Domain(str, port)
+                AddrKind::Domain(str, port)
             }
         };
 
@@ -231,7 +231,7 @@ trait ReadExt: AsyncReadExt + Unpin {
         self.read_method().await
     }
 
-    async fn read_final(&mut self) -> Result<TargetAddr> {
+    async fn read_final(&mut self) -> Result<AddrKind> {
         self.read_version().await?;
         self.read_reply().await?;
         self.read_reserved().await?;
@@ -282,19 +282,19 @@ trait WriteExt: AsyncWriteExt + Unpin {
         Ok(())
     }
 
-    async fn write_target_addr(&mut self, target_addr: &TargetAddr) -> Result<()> {
+    async fn write_target_addr(&mut self, target_addr: &AddrKind) -> Result<()> {
         match target_addr {
-            TargetAddr::Ip(SocketAddr::V4(addr)) => {
+            AddrKind::Ip(SocketAddr::V4(addr)) => {
                 self.write_atyp(Atyp::V4).await?;
                 self.write_all(&addr.ip().octets()).await?;
                 self.write_u16(addr.port()).await?;
             }
-            TargetAddr::Ip(SocketAddr::V6(addr)) => {
+            AddrKind::Ip(SocketAddr::V6(addr)) => {
                 self.write_atyp(Atyp::V6).await?;
                 self.write_all(&addr.ip().octets()).await?;
                 self.write_u16(addr.port()).await?;
             }
-            TargetAddr::Domain(domain, port) => {
+            AddrKind::Domain(domain, port) => {
                 self.write_atyp(Atyp::Domain).await?;
                 self.write_string(&domain, StringKind::Domain).await?;
                 self.write_u16(*port).await?;
@@ -331,7 +331,7 @@ trait WriteExt: AsyncWriteExt + Unpin {
         self.write_methods(&methods).await
     }
 
-    async fn write_final(&mut self, command: Command, addr: &TargetAddr) -> Result<()> {
+    async fn write_final(&mut self, command: Command, addr: &AddrKind) -> Result<()> {
         self.write_version().await?;
         self.write_command(command).await?;
         self.write_reserved().await?;
@@ -361,9 +361,9 @@ async fn username_password_auth(
 async fn init(
     socket: &mut TcpStream,
     command: Command,
-    addr: &TargetAddr,
+    addr: &AddrKind,
     auth: Option<Auth<'_>>,
-) -> Result<TargetAddr> {
+) -> Result<AddrKind> {
     let mut socket = BufReader::new(socket);
 
     let mut methods = Vec::with_capacity(2);
@@ -438,14 +438,16 @@ pub enum UnsuccessfulReply {
     Unassigned(u8),
 }
 
-/// A target address a proxy server will use to connect to.
+/// Either [`SocketAddr`] or a domain and a port.
+///
+/// [`SocketAddr`]: https://doc.rust-lang.org/std/net/enum.SocketAddr.html
 #[derive(Debug, Eq, PartialEq, Clone, Hash)]
-pub enum TargetAddr {
+pub enum AddrKind {
     Ip(SocketAddr),
     Domain(String, u16),
 }
 
-impl TargetAddr {
+impl AddrKind {
     const MAX_SIZE: usize = 1 // atyp
         + 1 // domain len
         + 255 // domain
@@ -454,8 +456,8 @@ impl TargetAddr {
     // FIXME: until ToSocketAddrs is allowed to implement
     fn to_socket_addr(&self) -> String {
         match self {
-            TargetAddr::Ip(addr) => addr.to_string(),
-            TargetAddr::Domain(domain, port) => format!("{}:{}", domain, port),
+            AddrKind::Ip(addr) => addr.to_string(),
+            AddrKind::Domain(domain, port) => format!("{}:{}", domain, port),
         }
     }
 
@@ -463,9 +465,9 @@ impl TargetAddr {
         1 + // atyp
             2 + // port
             match self {
-                TargetAddr::Ip(SocketAddr::V4(_)) => 4,
-                TargetAddr::Ip(SocketAddr::V6(_)) => 16,
-                TargetAddr::Domain(domain, _) =>
+                AddrKind::Ip(SocketAddr::V4(_)) => 4,
+                AddrKind::Ip(SocketAddr::V6(_)) => 16,
+                AddrKind::Domain(domain, _) =>
                     1 // string len
                         + domain.len(),
             }
@@ -481,14 +483,14 @@ impl TargetAddr {
 ///
 /// ```no_run
 /// use tokio::net::TcpStream;
-/// use async_socks5::TargetAddr;
+/// use async_socks5::AddrKind;
 ///
 /// # use async_socks5::Result;
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
 ///
 /// let mut stream = TcpStream::connect("my-proxy-server.com").await?;
-/// let target_addr = TargetAddr::Domain("google.com".to_string(), 80);
+/// let target_addr = AddrKind::Domain("google.com".to_string(), 80);
 /// async_socks5::connect(&mut stream, &target_addr, None).await?;
 ///
 /// # Ok(())
@@ -496,9 +498,9 @@ impl TargetAddr {
 /// ```
 pub async fn connect(
     socket: &mut TcpStream,
-    addr: &TargetAddr,
+    addr: &AddrKind,
     auth: Option<Auth<'_>>,
-) -> Result<TargetAddr> {
+) -> Result<AddrKind> {
     init(socket, Command::Connect, addr, auth).await
 }
 
@@ -506,14 +508,14 @@ pub async fn connect(
 ///
 /// ```no_run
 /// use tokio::net::TcpStream;
-/// use async_socks5::{TargetAddr, SocksListener};
+/// use async_socks5::{AddrKind, SocksListener};
 ///
 /// # use async_socks5::Result;
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
 ///
 /// let mut stream = TcpStream::connect("my-proxy-server.com").await?;
-/// let target_addr = TargetAddr::Domain("ftp-server.org".to_string(), 21);
+/// let target_addr = AddrKind::Domain("ftp-server.org".to_string(), 21);
 /// let (stream, addr) = SocksListener::bind(stream, &target_addr, None).await?.accept().await?;
 ///
 /// # Ok(())
@@ -522,7 +524,7 @@ pub async fn connect(
 #[derive(Debug)]
 pub struct SocksListener {
     socket: TcpStream,
-    proxy_addr: TargetAddr,
+    proxy_addr: AddrKind,
 }
 
 impl SocksListener {
@@ -531,7 +533,7 @@ impl SocksListener {
     /// [`BIND`]: https://tools.ietf.org/html/rfc1928#page-6
     pub async fn bind(
         mut socket: TcpStream,
-        addr: &TargetAddr,
+        addr: &AddrKind,
         auth: Option<Auth<'_>>,
     ) -> Result<SocksListener> {
         let addr = init(&mut socket, Command::Bind, addr, auth).await?;
@@ -541,11 +543,11 @@ impl SocksListener {
         })
     }
 
-    pub fn proxy_addr(&self) -> &TargetAddr {
+    pub fn proxy_addr(&self) -> &AddrKind {
         &self.proxy_addr
     }
 
-    pub async fn accept(mut self) -> Result<(TcpStream, TargetAddr)> {
+    pub async fn accept(mut self) -> Result<(TcpStream, AddrKind)> {
         let addr = self.socket.read_final().await?;
         Ok((self.socket, addr))
     }
@@ -555,7 +557,7 @@ impl SocksListener {
 #[derive(Debug)]
 pub struct SocksDatagram {
     socket: UdpSocket,
-    proxy_addr: TargetAddr,
+    proxy_addr: AddrKind,
     _stream: TcpStream,
 }
 
@@ -569,7 +571,7 @@ impl SocksDatagram {
         auth: Option<Auth<'_>>,
     ) -> Result<Self> {
         let mut stream = TcpStream::connect(proxy_addr).await?;
-        let unknown_yet = TargetAddr::Ip(SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0));
+        let unknown_yet = AddrKind::Ip(SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0));
         let proxy_addr = init(&mut stream, Command::UdpAssociate, &unknown_yet, auth).await?;
         socket.connect(proxy_addr.to_socket_addr()).await?;
         Ok(Self {
@@ -579,7 +581,7 @@ impl SocksDatagram {
         })
     }
 
-    pub fn proxy_addr(&self) -> &TargetAddr {
+    pub fn proxy_addr(&self) -> &AddrKind {
         &self.proxy_addr
     }
 
@@ -595,7 +597,7 @@ impl SocksDatagram {
         self.socket
     }
 
-    pub async fn send_to(&mut self, buf: &[u8], addr: &TargetAddr) -> Result<usize> {
+    pub async fn send_to(&mut self, buf: &[u8], addr: &AddrKind) -> Result<usize> {
         let mut cursor = Cursor::new(Self::alloc_buf(addr.size(), buf.len()));
         cursor.write_reserved().await?;
         cursor.write_reserved().await?;
@@ -606,8 +608,8 @@ impl SocksDatagram {
         Ok(self.socket.send(&bytes).await?)
     }
 
-    pub async fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, TargetAddr)> {
-        let mut bytes = Self::alloc_buf(TargetAddr::MAX_SIZE, buf.len());
+    pub async fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, AddrKind)> {
+        let mut bytes = Self::alloc_buf(AddrKind::MAX_SIZE, buf.len());
         let len = self.socket.recv(&mut bytes).await?;
 
         let mut cursor = Cursor::new(bytes);
@@ -646,7 +648,7 @@ mod tests {
         let mut socket = TcpStream::connect(addr).await.unwrap();
         super::connect(
             &mut socket,
-            &TargetAddr::Domain("google.com".to_string(), 80),
+            &AddrKind::Domain("google.com".to_string(), 80),
             auth,
         )
         .await
@@ -678,7 +680,7 @@ mod tests {
 
     #[tokio::test]
     async fn bind() {
-        let server_addr = TargetAddr::Domain("127.0.0.1".to_string(), 80);
+        let server_addr = AddrKind::Domain("127.0.0.1".to_string(), 80);
 
         let client = TcpStream::connect(PROXY_ADDR).await.unwrap();
         let client = SocksListener::bind(client, &server_addr, None)
@@ -706,7 +708,7 @@ mod tests {
 
         let server_addr: SocketAddr = "127.0.0.1:23456".parse().unwrap();
         let mut server = UdpSocket::bind(server_addr).await.unwrap();
-        let server_addr = TargetAddr::Ip(server_addr);
+        let server_addr = AddrKind::Ip(server_addr);
 
         let mut buf = vec![0; DATA.len()];
         client.send_to(DATA, &server_addr).await.unwrap();
