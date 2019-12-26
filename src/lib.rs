@@ -11,11 +11,10 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
     string::FromUtf8Error,
 };
-use tokio::net::ToSocketAddrs;
 use tokio::{
     io,
     io::{AsyncReadExt, AsyncWriteExt, BufReader},
-    net::{TcpStream, UdpSocket},
+    net::{TcpStream, ToSocketAddrs, UdpSocket},
 };
 
 // Error and Result
