@@ -606,7 +606,7 @@ impl SocksListener {
 pub struct SocksDatagram {
     socket: UdpSocket,
     proxy_addr: AddrKind,
-    _stream: TcpStream,
+    stream: TcpStream,
 }
 
 impl SocksDatagram {
@@ -617,14 +617,26 @@ impl SocksDatagram {
         mut proxy_stream: TcpStream,
         socket: UdpSocket,
         auth: Option<Auth<'_>>,
+        association_addr: Option<&AddrKind>,
     ) -> Result<Self> {
-        let unknown_yet = AddrKind::Ip(SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0));
-        let proxy_addr = init(&mut proxy_stream, Command::UdpAssociate, &unknown_yet, auth).await?;
+        // to be sure we pass the same arguments
+        macro_rules! init {
+            ($addr:expr) => {
+                init(&mut proxy_stream, Command::UdpAssociate, $addr, auth).await?
+            };
+        }
+
+        let proxy_addr = if let Some(addr) = association_addr {
+            init!(addr)
+        } else {
+            let unknown_yet = AddrKind::Ip(SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0));
+            init!(&unknown_yet)
+        };
         socket.connect(proxy_addr.to_socket_addr()).await?;
         Ok(Self {
             socket,
             proxy_addr,
-            _stream: proxy_stream,
+            stream: proxy_stream,
         })
     }
 
@@ -640,8 +652,8 @@ impl SocksDatagram {
         &mut self.socket
     }
 
-    pub fn into_inner(self) -> UdpSocket {
-        self.socket
+    pub fn into_inner(self) -> (TcpStream, UdpSocket) {
+        (self.stream, self.socket)
     }
 
     pub async fn send_to(&mut self, buf: &[u8], addr: &AddrKind) -> Result<usize> {
@@ -750,7 +762,9 @@ mod tests {
     async fn udp_associate() {
         let proxy = TcpStream::connect(PROXY_ADDR).await.unwrap();
         let client = UdpSocket::bind("127.0.0.1:2345").await.unwrap();
-        let mut client = SocksDatagram::associate(proxy, client, None).await.unwrap();
+        let mut client = SocksDatagram::associate(proxy, client, None, None)
+            .await
+            .unwrap();
 
         let server_addr: SocketAddr = "127.0.0.1:23456".parse().unwrap();
         let mut server = UdpSocket::bind(server_addr).await.unwrap();
