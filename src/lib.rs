@@ -6,7 +6,6 @@
 
 use async_trait::async_trait;
 use std::{
-    borrow::Cow,
     io::Cursor,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
     string::FromUtf8Error,
@@ -342,10 +341,7 @@ trait WriteExt: AsyncWriteExt + Unpin {
 #[async_trait(? Send)]
 impl<T: AsyncWriteExt + Unpin> WriteExt for T {}
 
-async fn username_password_auth(
-    socket: &mut BufReader<&mut TcpStream>,
-    auth: Auth<'_>,
-) -> Result<()> {
+async fn username_password_auth(socket: &mut BufReader<&mut TcpStream>, auth: Auth) -> Result<()> {
     socket.write_auth_version().await?;
     socket
         .write_string(&auth.username, StringKind::Username)
@@ -362,7 +358,7 @@ async fn init(
     socket: &mut TcpStream,
     command: Command,
     addr: &AddrKind,
-    auth: Option<Auth<'_>>,
+    auth: Option<Auth>,
 ) -> Result<AddrKind> {
     let mut socket = BufReader::new(socket);
 
@@ -392,9 +388,9 @@ async fn init(
 
 /// Required for a username + password authentication.
 #[derive(Debug, Eq, PartialEq, Clone, Hash)]
-pub struct Auth<'a> {
-    pub username: Cow<'a, str>,
-    pub password: Cow<'a, str>,
+pub struct Auth {
+    pub username: String,
+    pub password: String,
 }
 
 /// A proxy authentication method.
@@ -547,7 +543,7 @@ impl From<SocketAddrV6> for AddrKind {
 pub async fn connect(
     socket: &mut TcpStream,
     addr: &AddrKind,
-    auth: Option<Auth<'_>>,
+    auth: Option<Auth>,
 ) -> Result<AddrKind> {
     init(socket, Command::Connect, addr, auth).await
 }
@@ -582,7 +578,7 @@ impl SocksListener {
     pub async fn bind(
         mut socket: TcpStream,
         addr: &AddrKind,
-        auth: Option<Auth<'_>>,
+        auth: Option<Auth>,
     ) -> Result<SocksListener> {
         let addr = init(&mut socket, Command::Bind, addr, auth).await?;
         Ok(Self {
@@ -616,7 +612,7 @@ impl SocksDatagram {
     pub async fn associate(
         mut proxy_stream: TcpStream,
         socket: UdpSocket,
-        auth: Option<Auth<'_>>,
+        auth: Option<Auth>,
         association_addr: Option<&AddrKind>,
     ) -> Result<Self> {
         // to be sure we pass the same arguments
@@ -703,7 +699,7 @@ mod tests {
     const PROXY_AUTH_ADDR: &str = "127.0.0.1:1081";
     const DATA: &[u8] = b"Hello, world!";
 
-    async fn connect(addr: &str, auth: Option<Auth<'_>>) {
+    async fn connect(addr: &str, auth: Option<Auth>) {
         let mut socket = TcpStream::connect(addr).await.unwrap();
         super::connect(
             &mut socket,
@@ -719,8 +715,8 @@ mod tests {
         connect(
             PROXY_AUTH_ADDR,
             Some(Auth {
-                username: Cow::from("hyper"),
-                password: Cow::from("proxy"),
+                username: "hyper".to_owned(),
+                password: "proxy".to_owned(),
             }),
         )
         .await;
