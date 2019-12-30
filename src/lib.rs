@@ -354,12 +354,16 @@ async fn username_password_auth(socket: &mut BufReader<&mut TcpStream>, auth: Au
     socket.read_auth_status().await
 }
 
-async fn init(
+async fn init<A>(
     socket: &mut TcpStream,
     command: Command,
-    addr: &AddrKind,
+    addr: A,
     auth: Option<Auth>,
-) -> Result<AddrKind> {
+) -> Result<AddrKind>
+where
+    A: Into<AddrKind>,
+{
+    let addr: AddrKind = addr.into();
     let mut socket = BufReader::new(socket);
 
     let mut methods = Vec::with_capacity(2);
@@ -534,17 +538,15 @@ impl From<SocketAddrV6> for AddrKind {
 /// # async fn main() -> Result<()> {
 ///
 /// let mut stream = TcpStream::connect("my-proxy-server.com").await?;
-/// let target_addr = AddrKind::Domain("google.com".to_string(), 80);
-/// async_socks5::connect(&mut stream, &target_addr, None).await?;
+/// async_socks5::connect(&mut stream, ("google.com", 80), None).await?;
 ///
 /// # Ok(())
 /// # }
 /// ```
-pub async fn connect(
-    socket: &mut TcpStream,
-    addr: &AddrKind,
-    auth: Option<Auth>,
-) -> Result<AddrKind> {
+pub async fn connect<A>(socket: &mut TcpStream, addr: A, auth: Option<Auth>) -> Result<AddrKind>
+where
+    A: Into<AddrKind>,
+{
     init(socket, Command::Connect, addr, auth).await
 }
 
@@ -559,8 +561,7 @@ pub async fn connect(
 /// # async fn main() -> Result<()> {
 ///
 /// let mut stream = TcpStream::connect("my-proxy-server.com").await?;
-/// let target_addr = AddrKind::Domain("ftp-server.org".to_string(), 21);
-/// let (stream, addr) = SocksListener::bind(stream, &target_addr, None).await?.accept().await?;
+/// let (stream, addr) = SocksListener::bind(stream, ("ftp-server.org", 21), None).await?.accept().await?;
 ///
 /// # Ok(())
 /// # }
@@ -575,11 +576,14 @@ impl SocksListener {
     /// Creates `SocksListener`. Performs the [`BIND`] command under the hood.
     ///
     /// [`BIND`]: https://tools.ietf.org/html/rfc1928#page-6
-    pub async fn bind(
+    pub async fn bind<A>(
         mut socket: TcpStream,
-        addr: &AddrKind,
+        addr: A,
         auth: Option<Auth>,
-    ) -> Result<SocksListener> {
+    ) -> Result<SocksListener>
+    where
+        A: Into<AddrKind>,
+    {
         let addr = init(&mut socket, Command::Bind, addr, auth).await?;
         Ok(Self {
             socket,
@@ -609,12 +613,15 @@ impl SocksDatagram {
     /// Creates `SocksDatagram`. Performs [`UDP ASSOCIATE`] under the hood.
     ///
     /// [`UDP ASSOCIATE`]: https://tools.ietf.org/html/rfc1928#page-7
-    pub async fn associate(
+    pub async fn associate<A>(
         mut proxy_stream: TcpStream,
         socket: UdpSocket,
         auth: Option<Auth>,
-        association_addr: Option<&AddrKind>,
-    ) -> Result<Self> {
+        association_addr: Option<A>,
+    ) -> Result<Self>
+    where
+        A: Into<AddrKind>,
+    {
         // to be sure we pass the same arguments
         macro_rules! init {
             ($addr:expr) => {
@@ -626,7 +633,7 @@ impl SocksDatagram {
             init!(addr)
         } else {
             let unknown_yet = AddrKind::Ip(SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0));
-            init!(&unknown_yet)
+            init!(unknown_yet)
         };
         socket.connect(proxy_addr.to_socket_addr()).await?;
         Ok(Self {
@@ -652,12 +659,17 @@ impl SocksDatagram {
         (self.stream, self.socket)
     }
 
-    pub async fn send_to(&mut self, buf: &[u8], addr: &AddrKind) -> Result<usize> {
+    pub async fn send_to<A>(&mut self, buf: &[u8], addr: A) -> Result<usize>
+    where
+        A: Into<AddrKind>,
+    {
+        let addr: AddrKind = addr.into();
+
         let mut cursor = Cursor::new(Self::alloc_buf(addr.size(), buf.len()));
         cursor.write_reserved().await?;
         cursor.write_reserved().await?;
         cursor.write_fragment_id().await?;
-        cursor.write_target_addr(addr).await?;
+        cursor.write_target_addr(&addr).await?;
         cursor.write_all(buf).await?;
         let bytes = cursor.into_inner();
         Ok(self.socket.send(&bytes).await?)
@@ -703,7 +715,7 @@ mod tests {
         let mut socket = TcpStream::connect(addr).await.unwrap();
         super::connect(
             &mut socket,
-            &AddrKind::Domain("google.com".to_string(), 80),
+            AddrKind::Domain("google.com".to_string(), 80),
             auth,
         )
         .await
@@ -738,7 +750,7 @@ mod tests {
         let server_addr = AddrKind::Domain("127.0.0.1".to_string(), 80);
 
         let client = TcpStream::connect(PROXY_ADDR).await.unwrap();
-        let client = SocksListener::bind(client, &server_addr, None)
+        let client = SocksListener::bind(client, server_addr, None)
             .await
             .unwrap();
 
@@ -758,7 +770,7 @@ mod tests {
     async fn udp_associate() {
         let proxy = TcpStream::connect(PROXY_ADDR).await.unwrap();
         let client = UdpSocket::bind("127.0.0.1:2345").await.unwrap();
-        let mut client = SocksDatagram::associate(proxy, client, None, None)
+        let mut client = SocksDatagram::associate::<SocketAddr>(proxy, client, None, None)
             .await
             .unwrap();
 
@@ -767,7 +779,7 @@ mod tests {
         let server_addr = AddrKind::Ip(server_addr);
 
         let mut buf = vec![0; DATA.len()];
-        client.send_to(DATA, &server_addr).await.unwrap();
+        client.send_to(DATA, server_addr).await.unwrap();
         let (len, addr) = server.recv_from(&mut buf).await.unwrap();
         assert_eq!(len, buf.len());
         assert_eq!(buf.as_slice(), DATA);
