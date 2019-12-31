@@ -622,14 +622,10 @@ impl SocksDatagram {
     where
         A: Into<AddrKind>,
     {
-        let proxy_addr = match association_addr {
-            Some(addr) => init(&mut proxy_stream, Command::UdpAssociate, addr, auth).await?,
-            None => {
-                let unknown_yet = AddrKind::Ip(SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0));
-                init(&mut proxy_stream, Command::UdpAssociate, unknown_yet, auth).await?
-            }
-        };
-
+        let addr = association_addr
+            .map(Into::into)
+            .unwrap_or_else(|| AddrKind::Ip(SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0)));
+        let proxy_addr = init(&mut proxy_stream, Command::UdpAssociate, addr, auth).await?;
         socket.connect(proxy_addr.to_socket_addr()).await?;
         Ok(Self {
             socket,
