@@ -1,3 +1,10 @@
+# v0.2.0 (2019-12-31)
+* Rename `TargetAddr` to `AddrKind`
+* Implement `From<...>` for `AddrKind` and consume `Into<AddrKind>` in method arguments
+* Update `Error`
+* `SocksDatagram::associate` now consume `TcpStream` instead of `ToSocketAddrs` and can access association address
+* Add `new` method for `Auth`
+
 # v0.1.1 (2019-12-25)
 * Increase inner buffer size when receiving UDP datagram
 * Fix crate name in documentation
