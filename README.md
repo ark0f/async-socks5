@@ -34,6 +34,8 @@ async fn main() -> Result<()> {
 }
 ```
 
+[More examples](https://docs.rs/async-socks5).
+
 # [Changelog](https://github.com/ark0f/async-socks5/blob/master/CHANGELOG.md)
 
 # License
