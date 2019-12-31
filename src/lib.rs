@@ -550,7 +550,7 @@ impl From<SocketAddrV6> for AddrKind {
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
 ///
-/// let mut stream = TcpStream::connect("my-proxy-server.com").await?;
+/// let mut stream = TcpStream::connect("my-proxy-server.com:54321").await?;
 /// connect(&mut stream, ("google.com", 80), None).await?;
 ///
 /// # Ok(())
@@ -572,7 +572,7 @@ where
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
 ///
-/// let mut stream = TcpStream::connect("my-proxy-server.com").await?;
+/// let mut stream = TcpStream::connect("my-proxy-server.com:54321").await?;
 /// let (stream, addr) = SocksListener::bind(stream, ("ftp-server.org", 21), None).await?.accept().await?;
 ///
 /// # Ok(())
