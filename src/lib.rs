@@ -1,4 +1,4 @@
-//! This library provides an asynchronous [SOCKS5] implementation.
+//! An `async`/`.await` [SOCKS5] implementation.
 //!
 //! [SOCKS5]: https://tools.ietf.org/html/rfc1928
 
@@ -545,14 +545,13 @@ impl From<SocketAddrV6> for AddrKind {
 ///
 /// ```no_run
 /// use tokio::net::TcpStream;
-/// use async_socks5::AddrKind;
-///
+/// use async_socks5::connect;
 /// # use async_socks5::Result;
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
 ///
-/// let mut stream = TcpStream::connect("my-proxy-server.com").await?;
-/// async_socks5::connect(&mut stream, ("google.com", 80), None).await?;
+/// let mut stream = TcpStream::connect("my-proxy-server.com:54321").await?;
+/// connect(&mut stream, ("google.com", 80), None).await?;
 ///
 /// # Ok(())
 /// # }
@@ -568,13 +567,12 @@ where
 ///
 /// ```no_run
 /// use tokio::net::TcpStream;
-/// use async_socks5::{AddrKind, SocksListener};
-///
+/// use async_socks5::SocksListener;
 /// # use async_socks5::Result;
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
 ///
-/// let mut stream = TcpStream::connect("my-proxy-server.com").await?;
+/// let mut stream = TcpStream::connect("my-proxy-server.com:54321").await?;
 /// let (stream, addr) = SocksListener::bind(stream, ("ftp-server.org", 21), None).await?.accept().await?;
 ///
 /// # Ok(())
