@@ -1,4 +1,4 @@
-//! This library provides an asynchronous [SOCKS5] implementation.
+//! An `async`/`.await` [SOCKS5] implementation.
 //!
 //! [SOCKS5]: https://tools.ietf.org/html/rfc1928
 
@@ -22,13 +22,13 @@ use tokio::{
 /// The library's error type.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("{}", &0)]
+    #[error("I/O: {}", &0)]
     Io(
         #[from]
         #[source]
         io::Error,
     ),
-    #[error("{}", &0)]
+    #[error("Invalid UTF-8: {}", &0)]
     FromUtf8(
         #[from]
         #[source]
@@ -545,14 +545,13 @@ impl From<SocketAddrV6> for AddrKind {
 ///
 /// ```no_run
 /// use tokio::net::TcpStream;
-/// use async_socks5::AddrKind;
-///
+/// use async_socks5::connect;
 /// # use async_socks5::Result;
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
 ///
 /// let mut stream = TcpStream::connect("my-proxy-server.com").await?;
-/// async_socks5::connect(&mut stream, ("google.com", 80), None).await?;
+/// connect(&mut stream, ("google.com", 80), None).await?;
 ///
 /// # Ok(())
 /// # }
@@ -568,8 +567,7 @@ where
 ///
 /// ```no_run
 /// use tokio::net::TcpStream;
-/// use async_socks5::{AddrKind, SocksListener};
-///
+/// use async_socks5::SocksListener;
 /// # use async_socks5::Result;
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
