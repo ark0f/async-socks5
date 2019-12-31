@@ -20,6 +20,20 @@
   An `async`/`.await` [SOCKS5](https://tools.ietf.org/html/rfc1928) implementation.
 </div>
 
+## Examples
+Connect to `google.com:80` through `my-proxy-server.com:54321`:
+
+```rust
+use tokio::net::TcpStream;
+use async_socks5::{connect, Result};
+
+#[tokio::main]
+async fn main() -> Result<()> {
+  let mut stream = TcpStream::connect("my-proxy-server.com:54321").await?;
+  connect(&mut stream, ("google.com", 80), None).await?;
+}
+```
+
 # [Changelog](https://github.com/ark0f/async-socks5/blob/master/CHANGELOG.md)
 
 # License
