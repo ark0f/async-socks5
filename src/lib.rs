@@ -622,19 +622,14 @@ impl SocksDatagram {
     where
         A: Into<AddrKind>,
     {
-        // to be sure we pass the same arguments
-        macro_rules! init {
-            ($addr:expr) => {
-                init(&mut proxy_stream, Command::UdpAssociate, $addr, auth).await?
-            };
-        }
-
-        let proxy_addr = if let Some(addr) = association_addr {
-            init!(addr)
-        } else {
-            let unknown_yet = AddrKind::Ip(SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0));
-            init!(unknown_yet)
+        let proxy_addr = match association_addr {
+            Some(addr) => init(&mut proxy_stream, Command::UdpAssociate, addr, auth).await?,
+            None => {
+                let unknown_yet = AddrKind::Ip(SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0));
+                init(&mut proxy_stream, Command::UdpAssociate, unknown_yet, auth).await?
+            }
         };
+
         socket.connect(proxy_addr.to_socket_addr()).await?;
         Ok(Self {
             socket,
