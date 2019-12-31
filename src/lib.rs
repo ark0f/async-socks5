@@ -397,6 +397,20 @@ pub struct Auth {
     pub password: String,
 }
 
+impl Auth {
+    /// Constructs `Auth` with the specified username and a password.
+    pub fn new<U, P>(username: U, password: P) -> Self
+    where
+        U: Into<String>,
+        P: Into<String>,
+    {
+        Self {
+            username: username.into(),
+            password: password.into(),
+        }
+    }
+}
+
 /// A proxy authentication method.
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
 pub enum AuthMethod {
@@ -715,14 +729,7 @@ mod tests {
 
     #[tokio::test]
     async fn connect_auth() {
-        connect(
-            PROXY_AUTH_ADDR,
-            Some(Auth {
-                username: "hyper".to_owned(),
-                password: "proxy".to_owned(),
-            }),
-        )
-        .await;
+        connect(PROXY_AUTH_ADDR, Some(Auth::new("hyper", "proxy"))).await;
     }
 
     #[tokio::test]
