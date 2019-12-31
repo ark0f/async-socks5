@@ -22,13 +22,13 @@ use tokio::{
 /// The library's error type.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("I/O: {}", &0)]
+    #[error("{}", &0)]
     Io(
         #[from]
         #[source]
         io::Error,
     ),
-    #[error("Invalid UTF-8: {}", &0)]
+    #[error("{}", &0)]
     FromUtf8(
         #[from]
         #[source]
