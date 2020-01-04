@@ -1,3 +1,6 @@
+# v0.2.1 (2020-01-04)
+Fix futures have no `Send` trait
+
 # v0.2.0 (2019-12-31)
 * Rename `TargetAddr` to `AddrKind`
 * Implement `From<...>` for `AddrKind` and consume `Into<AddrKind>` in method arguments
