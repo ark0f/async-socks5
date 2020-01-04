@@ -77,7 +77,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 // Utilities
 // ********************************************************************************
 
-#[async_trait(? Send)]
+#[async_trait]
 trait ReadExt: AsyncReadExt + Unpin {
     async fn read_version(&mut self) -> Result<()> {
         let value = self.read_u8().await?;
@@ -239,10 +239,10 @@ trait ReadExt: AsyncReadExt + Unpin {
     }
 }
 
-#[async_trait(? Send)]
+#[async_trait]
 impl<T: AsyncReadExt + Unpin> ReadExt for T {}
 
-#[async_trait(? Send)]
+#[async_trait]
 trait WriteExt: AsyncWriteExt + Unpin {
     async fn write_version(&mut self) -> Result<()> {
         self.write_u8(0x05).await?;
@@ -338,7 +338,7 @@ trait WriteExt: AsyncWriteExt + Unpin {
     }
 }
 
-#[async_trait(? Send)]
+#[async_trait]
 impl<T: AsyncWriteExt + Unpin> WriteExt for T {}
 
 async fn username_password_auth(socket: &mut BufReader<&mut TcpStream>, auth: Auth) -> Result<()> {
