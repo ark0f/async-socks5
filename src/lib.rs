@@ -552,13 +552,15 @@ impl From<SocketAddrV6> for AddrKind {
 /// [`CONNECT`]: https://tools.ietf.org/html/rfc1928#page-6
 ///
 /// ```no_run
-/// use tokio::net::TcpStream;
-/// use async_socks5::connect;
 /// # use async_socks5::Result;
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
+/// use tokio::net::TcpStream;
+/// use tokio::io::BufStream;
+/// use async_socks5::connect;
 ///
-/// let mut stream = TcpStream::connect("my-proxy-server.com:54321").await?;
+/// let stream = TcpStream::connect("my-proxy-server.com:54321").await?;
+/// let mut stream = BufStream::new(stream);
 /// connect(&mut stream, ("google.com", 80), None).await?;
 ///
 /// # Ok(())
@@ -575,13 +577,15 @@ where
 /// A listener that accepts TCP connections through a proxy.
 ///
 /// ```no_run
-/// use tokio::net::TcpStream;
-/// use async_socks5::SocksListener;
 /// # use async_socks5::Result;
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
+/// use tokio::net::TcpStream;
+/// use tokio::io::BufStream;
+/// use async_socks5::SocksListener;
 ///
-/// let mut stream = TcpStream::connect("my-proxy-server.com:54321").await?;
+/// let stream = TcpStream::connect("my-proxy-server.com:54321").await?;
+/// let mut stream = BufStream::new(stream);
 /// let (stream, addr) = SocksListener::bind(stream, ("ftp-server.org", 21), None).await?.accept().await?;
 ///
 /// # Ok(())
