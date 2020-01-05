@@ -327,34 +327,39 @@ trait WriteExt: AsyncWriteExt + Unpin {
 
     async fn write_selection_msg(&mut self, methods: &[AuthMethod]) -> Result<()> {
         self.write_version().await?;
-        self.write_methods(&methods).await
+        self.write_methods(&methods).await?;
+        self.flush().await?;
+        Ok(())
     }
 
     async fn write_final(&mut self, command: Command, addr: &AddrKind) -> Result<()> {
         self.write_version().await?;
         self.write_command(command).await?;
         self.write_reserved().await?;
-        self.write_target_addr(addr).await
+        self.write_target_addr(addr).await?;
+        self.flush().await?;
+        Ok(())
     }
 }
 
 #[async_trait]
 impl<T: AsyncWriteExt + Unpin> WriteExt for T {}
 
-async fn username_password_auth<S>(socket: &mut S, auth: Auth) -> Result<()>
+async fn username_password_auth<S>(stream: &mut S, auth: Auth) -> Result<()>
 where
     S: WriteExt + ReadExt + Send,
 {
-    socket.write_auth_version().await?;
-    socket
+    stream.write_auth_version().await?;
+    stream
         .write_string(&auth.username, StringKind::Username)
         .await?;
-    socket
+    stream
         .write_string(&auth.password, StringKind::Password)
         .await?;
+    stream.flush().await?;
 
-    socket.read_auth_version().await?;
-    socket.read_auth_status().await
+    stream.read_auth_version().await?;
+    stream.read_auth_status().await
 }
 
 async fn init<S, A>(
@@ -715,15 +720,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::{io::BufStream, net::TcpStream};
+    use tokio::net::TcpStream;
 
     const PROXY_ADDR: &str = "127.0.0.1:1080";
     const PROXY_AUTH_ADDR: &str = "127.0.0.1:1081";
     const DATA: &[u8] = b"Hello, world!";
 
     async fn connect(addr: &str, auth: Option<Auth>) {
-        let socket = TcpStream::connect(addr).await.unwrap();
-        let mut socket = BufStream::new(socket);
+        let mut socket = TcpStream::connect(addr).await.unwrap();
         super::connect(
             &mut socket,
             AddrKind::Domain("google.com".to_string(), 80),
@@ -754,7 +758,6 @@ mod tests {
         let server_addr = AddrKind::Domain("127.0.0.1".to_string(), 80);
 
         let client = TcpStream::connect(PROXY_ADDR).await.unwrap();
-        let client = BufStream::new(client);
         let client = SocksListener::bind(client, server_addr, None)
             .await
             .unwrap();
@@ -774,9 +777,8 @@ mod tests {
     #[tokio::test]
     async fn udp_associate() {
         let proxy = TcpStream::connect(PROXY_ADDR).await.unwrap();
-        let proxy = BufStream::new(proxy);
         let client = UdpSocket::bind("127.0.0.1:2345").await.unwrap();
-        let mut client = SocksDatagram::associate::<SocketAddr>(proxy, client, None, None)
+        let mut client = SocksDatagram::associate(proxy, client, None, None::<SocketAddr>)
             .await
             .unwrap();
 
