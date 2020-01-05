@@ -12,8 +12,8 @@ use std::{
 };
 use tokio::{
     io,
-    io::{AsyncReadExt, AsyncWriteExt, BufReader},
-    net::{TcpStream, UdpSocket},
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::UdpSocket,
 };
 
 // Error and Result
@@ -327,64 +327,72 @@ trait WriteExt: AsyncWriteExt + Unpin {
 
     async fn write_selection_msg(&mut self, methods: &[AuthMethod]) -> Result<()> {
         self.write_version().await?;
-        self.write_methods(&methods).await
+        self.write_methods(&methods).await?;
+        self.flush().await?;
+        Ok(())
     }
 
     async fn write_final(&mut self, command: Command, addr: &AddrKind) -> Result<()> {
         self.write_version().await?;
         self.write_command(command).await?;
         self.write_reserved().await?;
-        self.write_target_addr(addr).await
+        self.write_target_addr(addr).await?;
+        self.flush().await?;
+        Ok(())
     }
 }
 
 #[async_trait]
 impl<T: AsyncWriteExt + Unpin> WriteExt for T {}
 
-async fn username_password_auth(socket: &mut BufReader<&mut TcpStream>, auth: Auth) -> Result<()> {
-    socket.write_auth_version().await?;
-    socket
+async fn username_password_auth<S>(stream: &mut S, auth: Auth) -> Result<()>
+where
+    S: WriteExt + ReadExt + Send,
+{
+    stream.write_auth_version().await?;
+    stream
         .write_string(&auth.username, StringKind::Username)
         .await?;
-    socket
+    stream
         .write_string(&auth.password, StringKind::Password)
         .await?;
+    stream.flush().await?;
 
-    socket.read_auth_version().await?;
-    socket.read_auth_status().await
+    stream.read_auth_version().await?;
+    stream.read_auth_status().await
 }
 
-async fn init<A>(
-    socket: &mut TcpStream,
+async fn init<S, A>(
+    stream: &mut S,
     command: Command,
     addr: A,
     auth: Option<Auth>,
 ) -> Result<AddrKind>
 where
+    S: WriteExt + ReadExt + Send,
     A: Into<AddrKind>,
 {
     let addr: AddrKind = addr.into();
-    let mut socket = BufReader::new(socket);
 
     let mut methods = Vec::with_capacity(2);
     methods.push(AuthMethod::None);
     if auth.is_some() {
         methods.push(AuthMethod::UsernamePassword);
     }
-    socket.write_selection_msg(&methods).await?;
+    stream.write_selection_msg(&methods).await?;
 
-    let method: AuthMethod = socket.read_selection_msg().await?;
+    let method: AuthMethod = stream.read_selection_msg().await?;
     match method {
         AuthMethod::None => {}
         // FIXME: until if let in match is stabilized
         AuthMethod::UsernamePassword if auth.is_some() => {
-            username_password_auth(&mut socket, auth.unwrap()).await?;
+            username_password_auth(stream, auth.unwrap()).await?;
         }
         _ => return Err(Error::InvalidAuthMethod(method)),
     }
 
-    socket.write_final(command, &addr).await?;
-    socket.read_final().await
+    stream.write_final(command, &addr).await?;
+    stream.read_final().await
 }
 
 // Types
@@ -544,20 +552,23 @@ impl From<SocketAddrV6> for AddrKind {
 /// [`CONNECT`]: https://tools.ietf.org/html/rfc1928#page-6
 ///
 /// ```no_run
-/// use tokio::net::TcpStream;
-/// use async_socks5::connect;
 /// # use async_socks5::Result;
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
+/// use tokio::net::TcpStream;
+/// use tokio::io::BufStream;
+/// use async_socks5::connect;
 ///
-/// let mut stream = TcpStream::connect("my-proxy-server.com:54321").await?;
+/// let stream = TcpStream::connect("my-proxy-server.com:54321").await?;
+/// let mut stream = BufStream::new(stream);
 /// connect(&mut stream, ("google.com", 80), None).await?;
 ///
 /// # Ok(())
 /// # }
 /// ```
-pub async fn connect<A>(socket: &mut TcpStream, addr: A, auth: Option<Auth>) -> Result<AddrKind>
+pub async fn connect<S, A>(socket: &mut S, addr: A, auth: Option<Auth>) -> Result<AddrKind>
 where
+    S: AsyncWriteExt + AsyncReadExt + Send + Unpin,
     A: Into<AddrKind>,
 {
     init(socket, Command::Connect, addr, auth).await
@@ -566,39 +577,40 @@ where
 /// A listener that accepts TCP connections through a proxy.
 ///
 /// ```no_run
-/// use tokio::net::TcpStream;
-/// use async_socks5::SocksListener;
 /// # use async_socks5::Result;
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
+/// use tokio::net::TcpStream;
+/// use tokio::io::BufStream;
+/// use async_socks5::SocksListener;
 ///
-/// let mut stream = TcpStream::connect("my-proxy-server.com:54321").await?;
+/// let stream = TcpStream::connect("my-proxy-server.com:54321").await?;
+/// let mut stream = BufStream::new(stream);
 /// let (stream, addr) = SocksListener::bind(stream, ("ftp-server.org", 21), None).await?.accept().await?;
 ///
 /// # Ok(())
 /// # }
 /// ```
 #[derive(Debug)]
-pub struct SocksListener {
-    socket: TcpStream,
+pub struct SocksListener<S> {
+    stream: S,
     proxy_addr: AddrKind,
 }
 
-impl SocksListener {
+impl<S> SocksListener<S>
+where
+    S: AsyncWriteExt + AsyncReadExt + Send + Unpin,
+{
     /// Creates `SocksListener`. Performs the [`BIND`] command under the hood.
     ///
     /// [`BIND`]: https://tools.ietf.org/html/rfc1928#page-6
-    pub async fn bind<A>(
-        mut socket: TcpStream,
-        addr: A,
-        auth: Option<Auth>,
-    ) -> Result<SocksListener>
+    pub async fn bind<A>(mut stream: S, addr: A, auth: Option<Auth>) -> Result<Self>
     where
         A: Into<AddrKind>,
     {
-        let addr = init(&mut socket, Command::Bind, addr, auth).await?;
+        let addr = init(&mut stream, Command::Bind, addr, auth).await?;
         Ok(Self {
-            socket,
+            stream,
             proxy_addr: addr,
         })
     }
@@ -607,26 +619,29 @@ impl SocksListener {
         &self.proxy_addr
     }
 
-    pub async fn accept(mut self) -> Result<(TcpStream, AddrKind)> {
-        let addr = self.socket.read_final().await?;
-        Ok((self.socket, addr))
+    pub async fn accept(mut self) -> Result<(S, AddrKind)> {
+        let addr = self.stream.read_final().await?;
+        Ok((self.stream, addr))
     }
 }
 
 /// A UDP socket that sends packets through a proxy.
 #[derive(Debug)]
-pub struct SocksDatagram {
+pub struct SocksDatagram<S> {
     socket: UdpSocket,
     proxy_addr: AddrKind,
-    stream: TcpStream,
+    stream: S,
 }
 
-impl SocksDatagram {
+impl<S> SocksDatagram<S>
+where
+    S: AsyncWriteExt + AsyncReadExt + Send + Unpin,
+{
     /// Creates `SocksDatagram`. Performs [`UDP ASSOCIATE`] under the hood.
     ///
     /// [`UDP ASSOCIATE`]: https://tools.ietf.org/html/rfc1928#page-7
     pub async fn associate<A>(
-        mut proxy_stream: TcpStream,
+        mut proxy_stream: S,
         socket: UdpSocket,
         auth: Option<Auth>,
         association_addr: Option<A>,
@@ -658,7 +673,7 @@ impl SocksDatagram {
         &mut self.socket
     }
 
-    pub fn into_inner(self) -> (TcpStream, UdpSocket) {
+    pub fn into_inner(self) -> (S, UdpSocket) {
         (self.stream, self.socket)
     }
 
@@ -709,6 +724,7 @@ impl SocksDatagram {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::net::TcpStream;
 
     const PROXY_ADDR: &str = "127.0.0.1:1080";
     const PROXY_AUTH_ADDR: &str = "127.0.0.1:1081";
@@ -766,7 +782,7 @@ mod tests {
     async fn udp_associate() {
         let proxy = TcpStream::connect(PROXY_ADDR).await.unwrap();
         let client = UdpSocket::bind("127.0.0.1:2345").await.unwrap();
-        let mut client = SocksDatagram::associate::<SocketAddr>(proxy, client, None, None)
+        let mut client = SocksDatagram::associate(proxy, client, None, None::<SocketAddr>)
             .await
             .unwrap();
 
