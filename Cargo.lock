@@ -120,17 +120,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mio-uds"
-version = "0.6.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "966257a94e196b11bb43aca423754d87429960a768de9414f3691d6957abf125"
-dependencies = [
- "iovec",
- "libc",
- "mio",
-]
-
-[[package]]
 name = "miow"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -223,10 +212,8 @@ dependencies = [
  "bytes",
  "iovec",
  "lazy_static",
- "libc",
  "memchr",
  "mio",
- "mio-uds",
  "pin-project-lite",
  "tokio-macros",
 ]
