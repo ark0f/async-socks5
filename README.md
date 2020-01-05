@@ -25,11 +25,13 @@ Connect to `google.com:80` through `my-proxy-server.com:54321`:
 
 ```rust
 use tokio::net::TcpStream;
+use tokio::io::BufStream;
 use async_socks5::{connect, Result};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-  let mut stream = TcpStream::connect("my-proxy-server.com:54321").await?;
+  let stream = TcpStream::connect("my-proxy-server.com:54321").await?;
+  let mut stream = BufStream::new(stream);
   connect(&mut stream, ("google.com", 80), None).await?;
 }
 ```

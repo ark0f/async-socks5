@@ -1,6 +1,6 @@
 [package]
 name = "async-socks5"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["Arsenii Lyashenko <arsenylyashenko.3@gmail.com>"]
 license = "Apache-2.0 OR MIT"
 description = "An async/.await SOCKS5 implementation"
