@@ -1,3 +1,6 @@
+# v0.3.0 (2020-01-05)
+Now you can use anything that implement `AsyncRead` and `AsyncWrite`
+
 # v0.2.1 (2020-01-04)
 Fix futures have no `Send` trait
 
