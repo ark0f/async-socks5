@@ -724,14 +724,15 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::net::TcpStream;
+    use tokio::{io::BufStream, net::TcpStream};
 
     const PROXY_ADDR: &str = "127.0.0.1:1080";
     const PROXY_AUTH_ADDR: &str = "127.0.0.1:1081";
     const DATA: &[u8] = b"Hello, world!";
 
     async fn connect(addr: &str, auth: Option<Auth>) {
-        let mut socket = TcpStream::connect(addr).await.unwrap();
+        let socket = TcpStream::connect(addr).await.unwrap();
+        let mut socket = BufStream::new(socket);
         super::connect(
             &mut socket,
             AddrKind::Domain("google.com".to_string(), 80),
@@ -762,6 +763,7 @@ mod tests {
         let server_addr = AddrKind::Domain("127.0.0.1".to_string(), 80);
 
         let client = TcpStream::connect(PROXY_ADDR).await.unwrap();
+        let client = BufStream::new(client);
         let client = SocksListener::bind(client, server_addr, None)
             .await
             .unwrap();
@@ -781,6 +783,7 @@ mod tests {
     #[tokio::test]
     async fn udp_associate() {
         let proxy = TcpStream::connect(PROXY_ADDR).await.unwrap();
+        let proxy = BufStream::new(proxy);
         let client = UdpSocket::bind("127.0.0.1:2345").await.unwrap();
         let mut client = SocksDatagram::associate(proxy, client, None, None::<SocketAddr>)
             .await
