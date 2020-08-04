@@ -1,3 +1,9 @@
+# v0.3.2 (2020-08-04)
+Add split API for `SocksDatagram`
+
+# v0.3.1 (2020-03-18)
+Fix `thiserror` crate incorrectly displaying foreign errors
+
 # v0.3.0 (2020-01-05)
 Now you can use anything that implement `AsyncRead` and `AsyncWrite`
 
