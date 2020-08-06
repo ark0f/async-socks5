@@ -1015,6 +1015,8 @@ mod tests {
     async fn split_reunite() {
         let client = create_client().await;
         let (recv, send) = client.split();
-        let _ = SocksDatagram::reunite(recv, send).map_err(|_| unreachable!());
+        let _ = SocksDatagram::reunite(recv, send)
+            .map_err(|_| unreachable!())
+            .unwrap();
     }
 }
