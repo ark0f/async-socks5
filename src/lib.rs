@@ -18,7 +18,7 @@ use tokio::{
 };
 
 // Error and Result
-// ********************************************************************************
+// *****************************************************************************
 
 /// The library's error type.
 #[derive(Debug, thiserror::Error)]
@@ -76,7 +76,7 @@ pub enum StringKind {
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 // Utilities
-// ********************************************************************************
+// *****************************************************************************
 
 #[async_trait]
 trait ReadExt: AsyncReadExt + Unpin {
@@ -397,7 +397,7 @@ where
 }
 
 // Types
-// ********************************************************************************
+// *****************************************************************************
 
 /// Required for a username + password authentication.
 #[derive(Debug, Eq, PartialEq, Clone, Hash)]
@@ -546,7 +546,7 @@ impl From<SocketAddrV6> for AddrKind {
 }
 
 // Public API
-// ********************************************************************************
+// *****************************************************************************
 
 /// Proxifies a TCP connection. Performs the [`CONNECT`] command under the hood.
 ///
@@ -556,9 +556,8 @@ impl From<SocketAddrV6> for AddrKind {
 /// # use async_socks5::Result;
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() -> Result<()> {
-/// use tokio::net::TcpStream;
-/// use tokio::io::BufStream;
 /// use async_socks5::connect;
+/// use tokio::{io::BufStream, net::TcpStream};
 ///
 /// let stream = TcpStream::connect("my-proxy-server.com:54321").await?;
 /// let mut stream = BufStream::new(stream);
@@ -581,13 +580,15 @@ where
 /// # use async_socks5::Result;
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() -> Result<()> {
-/// use tokio::net::TcpStream;
-/// use tokio::io::BufStream;
 /// use async_socks5::SocksListener;
+/// use tokio::{io::BufStream, net::TcpStream};
 ///
 /// let stream = TcpStream::connect("my-proxy-server.com:54321").await?;
 /// let mut stream = BufStream::new(stream);
-/// let (stream, addr) = SocksListener::bind(stream, ("ftp-server.org", 21), None).await?.accept().await?;
+/// let (stream, addr) = SocksListener::bind(stream, ("ftp-server.org", 21), None)
+///     .await?
+///     .accept()
+///     .await?;
 ///
 /// # Ok(())
 /// # }
@@ -735,7 +736,7 @@ where
 }
 
 // Tests
-// ********************************************************************************
+// *****************************************************************************
 
 #[cfg(test)]
 mod tests {
