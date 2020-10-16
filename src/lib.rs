@@ -10,15 +10,11 @@ use std::{
     io::Cursor,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
     string::FromUtf8Error,
-    sync::Arc,
 };
 use tokio::{
     io,
     io::{AsyncReadExt, AsyncWriteExt},
-    net::{
-        udp::{RecvHalf, ReuniteError, SendHalf},
-        UdpSocket,
-    },
+    net::UdpSocket,
 };
 
 // Error and Result
@@ -558,7 +554,7 @@ impl From<SocketAddrV6> for AddrKind {
 ///
 /// ```no_run
 /// # use async_socks5::Result;
-/// # #[tokio::main]
+/// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() -> Result<()> {
 /// use tokio::net::TcpStream;
 /// use tokio::io::BufStream;
@@ -583,7 +579,7 @@ where
 ///
 /// ```no_run
 /// # use async_socks5::Result;
-/// # #[tokio::main]
+/// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() -> Result<()> {
 /// use tokio::net::TcpStream;
 /// use tokio::io::BufStream;
@@ -682,30 +678,34 @@ where
         (self.stream, self.socket)
     }
 
-    async fn write_req(buf: &[u8], addr: AddrKind) -> Result<Vec<u8>> {
-        let mut cursor = Cursor::new(Self::alloc_buf(addr.size(), buf.len()));
+    async fn write_request(buf: &[u8], addr: AddrKind) -> Result<Vec<u8>> {
+        let bytes_size = Self::get_buf_size(addr.size(), buf.len());
+        let bytes = Vec::with_capacity(bytes_size);
+
+        let mut cursor = Cursor::new(bytes);
         cursor.write_reserved().await?;
         cursor.write_reserved().await?;
         cursor.write_fragment_id().await?;
         cursor.write_target_addr(&addr).await?;
         cursor.write_all(buf).await?;
+
         let bytes = cursor.into_inner();
         Ok(bytes)
     }
 
-    pub async fn send_to<A>(&mut self, buf: &[u8], addr: A) -> Result<usize>
+    pub async fn send_to<A>(&self, buf: &[u8], addr: A) -> Result<usize>
     where
         A: Into<AddrKind>,
     {
         let addr: AddrKind = addr.into();
-        let bytes = Self::write_req(buf, addr).await?;
+        let bytes = Self::write_request(buf, addr).await?;
         Ok(self.socket.send(&bytes).await?)
     }
 
-    async fn read_resp(
+    async fn read_response(
         len: usize,
         buf: &mut [u8],
-        bytes: &mut Vec<u8>,
+        bytes: &mut [u8],
     ) -> Result<(usize, AddrKind)> {
         let mut cursor = Cursor::new(bytes);
         cursor.read_reserved().await?;
@@ -717,123 +717,20 @@ where
         Ok((len - header_len, addr))
     }
 
-    pub async fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, AddrKind)> {
-        let mut bytes = Self::alloc_buf(AddrKind::MAX_SIZE, buf.len());
+    pub async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, AddrKind)> {
+        let bytes_size = Self::get_buf_size(AddrKind::MAX_SIZE, buf.len());
+        let mut bytes = vec![0; bytes_size];
+
         let len = self.socket.recv(&mut bytes).await?;
-        let (read, addr) = Self::read_resp(len, buf, &mut bytes).await?;
+        let (read, addr) = Self::read_response(len, buf, &mut bytes).await?;
         Ok((read, addr))
     }
 
-    /// Splits [`SocksDatagram`] into two halves to send and receive data concurrently
-    ///
-    /// [`SocksDatagram`]: struct.SocksDatagram.html
-    pub fn split(self) -> (SocksDatagramRecvHalf<S>, SocksDatagramSendHalf<S>) {
-        let inner = Arc::new(DatagramHalfInner {
-            proxy_addr: self.proxy_addr,
-            stream: self.stream,
-        });
-        let (recv, send) = self.socket.split();
-        let recv = DatagramHalf {
-            half: recv,
-            inner: inner.clone(),
-        };
-        let send = DatagramHalf { half: send, inner };
-        (SocksDatagramRecvHalf(recv), SocksDatagramSendHalf(send))
-    }
-
-    /// Tries to recover [`SocksDatagram`] from two halves.
-    /// Succeeds if halves are from the same call to [`SocksDatagram::split`].
-    ///
-    /// [`SocksDatagram`]: struct.SocksDatagram.html
-    /// [`SocksDatagram::split`]: struct.SocksDatagram.html#method.split
-    pub fn reunite(
-        recv: SocksDatagramRecvHalf<S>,
-        send: SocksDatagramSendHalf<S>,
-    ) -> Result<Self, (SocksDatagramSendHalf<S>, SocksDatagramRecvHalf<S>)>
-    where
-        S: Debug,
-    {
-        let inner = recv.0.inner.clone();
-        let socket = recv
-            .0
-            .half
-            .reunite(send.0.half)
-            .map_err(|ReuniteError(send, recv)| {
-                (
-                    SocksDatagramSendHalf(DatagramHalf {
-                        half: send,
-                        inner: inner.clone(),
-                    }),
-                    SocksDatagramRecvHalf(DatagramHalf {
-                        half: recv,
-                        inner: inner.clone(),
-                    }),
-                )
-            })?;
-
-        drop(recv.0.inner);
-        drop(send.0.inner);
-        let inner = Arc::try_unwrap(inner).unwrap_or_else(|_| unreachable!());
-
-        Ok(Self {
-            socket,
-            proxy_addr: inner.proxy_addr,
-            stream: inner.stream,
-        })
-    }
-
-    fn alloc_buf(addr_size: usize, buf_len: usize) -> Vec<u8> {
-        vec![
-            0;
-            2 // reserved
+    fn get_buf_size(addr_size: usize, buf_len: usize) -> usize {
+        2 // reserved
                 + 1 // fragment id
                 + addr_size
                 + buf_len
-        ]
-    }
-}
-
-#[derive(Debug)]
-struct DatagramHalf<T, S> {
-    half: T,
-    inner: Arc<DatagramHalfInner<S>>,
-}
-
-#[derive(Debug)]
-struct DatagramHalfInner<S> {
-    proxy_addr: AddrKind,
-    stream: S,
-}
-
-#[derive(Debug)]
-pub struct SocksDatagramSendHalf<S>(DatagramHalf<SendHalf, S>);
-
-impl<S> SocksDatagramSendHalf<S>
-where
-    S: AsyncWriteExt + AsyncReadExt + Send + Unpin,
-{
-    pub async fn send_to<A>(&mut self, buf: &[u8], addr: A) -> Result<usize>
-    where
-        A: Into<AddrKind>,
-    {
-        let addr: AddrKind = addr.into();
-        let bytes = SocksDatagram::<S>::write_req(buf, addr).await?;
-        Ok(self.0.half.send(&bytes).await?)
-    }
-}
-
-#[derive(Debug)]
-pub struct SocksDatagramRecvHalf<S>(DatagramHalf<RecvHalf, S>);
-
-impl<S> SocksDatagramRecvHalf<S>
-where
-    S: AsyncWriteExt + AsyncReadExt + Send + Unpin,
-{
-    pub async fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, AddrKind)> {
-        let mut bytes = SocksDatagram::<S>::alloc_buf(AddrKind::MAX_SIZE, buf.len());
-        let len = self.0.half.recv(&mut bytes).await?;
-        let (read, addr) = SocksDatagram::<S>::read_resp(len, buf, &mut bytes).await?;
-        Ok((read, addr))
     }
 }
 
@@ -843,6 +740,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use tokio::{io::BufStream, net::TcpStream};
 
     const PROXY_ADDR: &str = "127.0.0.1:1080";
@@ -901,10 +799,7 @@ mod tests {
 
     type TestStream = BufStream<TcpStream>;
     type TestDatagram = SocksDatagram<TestStream>;
-    type TestHalves = (
-        SocksDatagramRecvHalf<TestStream>,
-        SocksDatagramSendHalf<TestStream>,
-    );
+    type TestHalves = (Arc<TestDatagram>, Arc<TestDatagram>);
 
     #[async_trait]
     trait UdpClient {
@@ -921,11 +816,11 @@ mod tests {
         where
             A: Into<AddrKind> + Send,
         {
-            self.send_to(buf, addr).await
+            SocksDatagram::send_to(self, buf, addr).await
         }
 
         async fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, AddrKind), Error> {
-            self.recv_from(buf).await
+            SocksDatagram::recv_from(self, buf).await
         }
     }
 
@@ -941,6 +836,18 @@ mod tests {
         async fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, AddrKind), Error> {
             self.0.recv_from(buf).await
         }
+    }
+
+    const CLIENT_ADDR: &str = "127.0.0.1:2345";
+    const SERVER_ADDR: &str = "127.0.0.1:23456";
+
+    async fn create_client() -> TestDatagram {
+        let proxy = TcpStream::connect(PROXY_ADDR).await.unwrap();
+        let proxy = BufStream::new(proxy);
+        let client = UdpSocket::bind(CLIENT_ADDR).await.unwrap();
+        SocksDatagram::associate(proxy, client, None, None::<SocketAddr>)
+            .await
+            .unwrap()
     }
 
     struct UdpTest<C> {
@@ -965,20 +872,11 @@ mod tests {
         }
     }
 
-    async fn create_client() -> TestDatagram {
-        let proxy = TcpStream::connect(PROXY_ADDR).await.unwrap();
-        let proxy = BufStream::new(proxy);
-        let client = UdpSocket::bind("127.0.0.1:2345").await.unwrap();
-        SocksDatagram::associate(proxy, client, None, None::<SocketAddr>)
-            .await
-            .unwrap()
-    }
-
     impl UdpTest<TestDatagram> {
         async fn datagram() -> Self {
             let client = create_client().await;
 
-            let server_addr: SocketAddr = "127.0.0.1:23456".parse().unwrap();
+            let server_addr: SocketAddr = SERVER_ADDR.parse().unwrap();
             let server = UdpSocket::bind(server_addr).await.unwrap();
             let server_addr = AddrKind::Ip(server_addr);
 
@@ -993,8 +891,9 @@ mod tests {
     impl UdpTest<TestHalves> {
         async fn halves() -> Self {
             let this = UdpTest::<TestDatagram>::datagram().await;
+            let client = Arc::new(this.client);
             Self {
-                client: this.client.split(),
+                client: (client.clone(), client),
                 server: this.server,
                 server_addr: this.server_addr,
             }
@@ -1009,14 +908,5 @@ mod tests {
     #[tokio::test]
     async fn udp_datagram_halves() {
         UdpTest::halves().await.test().await
-    }
-
-    #[tokio::test]
-    async fn split_reunite() {
-        let client = create_client().await;
-        let (recv, send) = client.split();
-        let _ = SocksDatagram::reunite(recv, send)
-            .map_err(|_| unreachable!())
-            .unwrap();
     }
 }

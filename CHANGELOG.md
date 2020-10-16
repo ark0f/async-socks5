@@ -1,3 +1,7 @@
+# v0.4.0 (2020-10-16)
+Update to tokio 0.3
+`send_to` and `recv_from` use `&self` now, so you can use something like `Arc` to make send and receive halves
+
 # v0.3.2 (2020-08-04)
 Add split API for `SocksDatagram`
 
