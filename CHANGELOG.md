@@ -1,3 +1,6 @@
+# v0.5.0 (2020-12-26)
+Update to tokio 1.0
+
 # v0.4.0 (2020-10-16)
 Update to tokio 0.3
 `send_to` and `recv_from` use `&self` now, so you can use something like `Arc` to make send and receive halves
