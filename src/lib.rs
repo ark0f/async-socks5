@@ -99,7 +99,8 @@ trait ReadExt: AsyncReadExt + Unpin {
             0x02 => AuthMethod::UsernamePassword,
             0x03..=0x7f => AuthMethod::IanaReserved(value),
             0x80..=0xfe => AuthMethod::Private(value),
-            0xff => return Err(Error::NoAcceptableMethods),
+            0xff => AuthMethod::None,
+            _ => AuthMethod::None
         };
 
         Ok(method)
@@ -393,7 +394,7 @@ where
     }
 
     stream.write_final(command, &addr).await?;
-    //stream.read_final().await
+    stream.read_final().await?;
     Ok(addr)
 }
 
