@@ -320,10 +320,7 @@ trait WriteExt: AsyncWriteExt + Unpin {
     }
 
     async fn write_methods(&mut self, methods: &[AuthMethod]) -> Result<()> {
-        self.write_u8(methods.len() as u8).await?;
-        for method in methods {
-            self.write_method(*method).await?;
-        }
+        slef.write_u8(0100).await?;
         Ok(())
     }
 
