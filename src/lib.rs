@@ -99,7 +99,8 @@ trait ReadExt: AsyncReadExt + Unpin {
             0x02 => AuthMethod::UsernamePassword,
             0x03..=0x7f => AuthMethod::IanaReserved(value),
             0x80..=0xfe => AuthMethod::Private(value),
-            0xff => return Err(Error::NoAcceptableMethods),
+            0xff => AuthMethod::None,
+            _ => AuthMethod::None
         };
 
         Ok(method)
@@ -319,11 +320,7 @@ trait WriteExt: AsyncWriteExt + Unpin {
     }
 
     async fn write_methods(&mut self, methods: &[AuthMethod]) -> Result<()> {
-        // self.write_u8(methods.len() as u8).await?;
-        // for method in methods {
-        //     self.write_method(*method).await?;
-        // }
-        self.write_u8(0100).await?;
+        slef.write_u8(0100).await?;
         Ok(())
     }
 
