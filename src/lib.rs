@@ -393,7 +393,8 @@ where
     }
 
     stream.write_final(command, &addr).await?;
-    stream.read_final().await
+    //stream.read_final().await
+    Ok(addr)
 }
 
 // Types
