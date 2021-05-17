@@ -329,7 +329,8 @@ trait WriteExt: AsyncWriteExt + Unpin {
     async fn write_selection_msg(&mut self, methods: &[AuthMethod]) -> Result<()> {
         self.write_version().await?;
         // self.write_methods(&methods).await?;
-        self.write_u8(0100).await?;
+        self.write_u8(01).await?;
+        self.write_u8(00).await?;
         self.flush().await?;
         Ok(())
     }
