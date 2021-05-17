@@ -258,6 +258,7 @@ trait WriteExt: AsyncWriteExt + Unpin {
             AuthMethod::IanaReserved(value) => value,
             AuthMethod::Private(value) => value,
         };
+        println!("method value: {}", value);
         self.write_u8(value).await?;
         Ok(())
     }
@@ -320,6 +321,7 @@ trait WriteExt: AsyncWriteExt + Unpin {
 
     async fn write_methods(&mut self, methods: &[AuthMethod]) -> Result<()> {
         self.write_u8(methods.len() as u8).await?;
+        println!("methods.len is {:?}", methods.len() as u8);
         for method in methods {
             self.write_method(*method).await?;
         }
@@ -327,19 +329,42 @@ trait WriteExt: AsyncWriteExt + Unpin {
     }
 
     async fn write_selection_msg(&mut self, methods: &[AuthMethod]) -> Result<()> {
-        self.write_version().await?;
+        // self.write_version().await?;
+        self.write_u8(0x05).await?;
+        self.write_u8(methods.len() as u8).await?;
+        for method in methods {
+            self.write_method(*method).await?;
+        }
         // self.write_methods(&methods).await?;
-        self.write_u8(01).await?;
-        self.write_u8(00).await?;
         self.flush().await?;
         Ok(())
     }
 
     async fn write_final(&mut self, command: Command, addr: &AddrKind) -> Result<()> {
-        self.write_version().await?;
-        self.write_command(command).await?;
-        self.write_reserved().await?;
-        self.write_target_addr(addr).await?;
+        // self.write_version().await?;
+        self.write_u8(0x05).await?;
+        // self.write_command(command).await?;
+        self.write_u8(command as u8).await?;
+        // self.write_reserved().await?;
+        self.write_u8(0x00).await?;
+        // self.write_target_addr(addr).await?;
+        match addr {
+            AddrKind::Ip(SocketAddr::V4(addr)) => {
+                self.write_atyp(Atyp::V4).await?;
+                self.write_all(&addr.ip().octets()).await?;
+                self.write_u16(addr.port()).await?;
+            }
+            AddrKind::Ip(SocketAddr::V6(addr)) => {
+                self.write_atyp(Atyp::V6).await?;
+                self.write_all(&addr.ip().octets()).await?;
+                self.write_u16(addr.port()).await?;
+            }
+            AddrKind::Domain(domain, port) => {
+                self.write_atyp(Atyp::Domain).await?;
+                self.write_string(&domain, StringKind::Domain).await?;
+                self.write_u16(*port).await?;
+            }
+        }
         self.flush().await?;
         Ok(())
     }
@@ -382,6 +407,7 @@ where
     if auth.is_some() {
         methods.push(AuthMethod::UsernamePassword);
     }
+    println!("methods: {:?}", methods);
     stream.write_selection_msg(&methods).await?;
 
     let method: AuthMethod = stream.read_selection_msg().await?;
@@ -747,7 +773,7 @@ mod tests {
     use std::sync::Arc;
     use tokio::{io::BufStream, net::TcpStream};
 
-    const PROXY_ADDR: &str = "127.0.0.1:1080";
+    const PROXY_ADDR: &str = "121.43.34.37:8085";
     const PROXY_AUTH_ADDR: &str = "127.0.0.1:1081";
     const DATA: &[u8] = b"Hello, world!";
 
@@ -756,7 +782,7 @@ mod tests {
         let mut socket = BufStream::new(socket);
         super::connect(
             &mut socket,
-            AddrKind::Domain("google.com".to_string(), 80),
+            AddrKind::Domain("bing.com".to_string(), 80),
             auth,
         )
         .await
