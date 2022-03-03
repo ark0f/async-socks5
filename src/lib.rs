@@ -200,7 +200,7 @@ trait ReadExt: AsyncReadExt + Unpin {
 
     async fn read_string(&mut self) -> Result<String> {
         let len = self.read_u8().await?;
-        let mut str = Vec::with_capacity(len as usize);
+        let mut str = vec![0; len as usize];
         self.read_exact(&mut str).await?;
         let str = String::from_utf8(str)?;
         Ok(str)

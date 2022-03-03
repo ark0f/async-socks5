@@ -40,9 +40,13 @@ jobs:
         with:
           command: build
           args: --tests
-      - run: sudo add-apt-repository ppa:artyom.h31/3proxy
-      - run: sudo apt update
-      - run: sudo apt install 3proxy
+      - name: Download 3proxy
+        run: |
+          curl https://api.github.com/repos/3proxy/3proxy/releases/latest | 
+          grep -wo "https.*x86_64\.deb" | 
+          xargs curl -L -o 3proxy.deb
+      - run: sudo dpkg -i 3proxy.deb
+      - run: sudo apt install -f
       - run: nohup cat .github/workflows/proxy.cfg | 3proxy &
       - run: nohup cat .github/workflows/proxy_auth.cfg | 3proxy &
       - run: RUST_BACKTRACE=1 timeout 10 cargo test --all --all-features -- --test-threads=1
