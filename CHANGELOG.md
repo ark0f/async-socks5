@@ -1,3 +1,6 @@
+# v0.5.1 (2022-03-03)
+Fix processing of `DOMAINNAME` address type
+
 # v0.5.0 (2020-12-26)
 Update to tokio 1.0
 
