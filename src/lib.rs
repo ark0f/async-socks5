@@ -517,13 +517,21 @@ impl From<(Ipv6Addr, u16)> for AddrKind {
 
 impl From<(String, u16)> for AddrKind {
     fn from((domain, port): (String, u16)) -> Self {
-        Self::Domain(domain, port)
+        if let Ok(ipaddr) = domain.parse::<IpAddr>() {
+            Self::Ip((ipaddr, port).into())
+        } else {
+            Self::Domain(domain, port)
+        }
     }
 }
 
 impl From<(&'_ str, u16)> for AddrKind {
     fn from((domain, port): (&'_ str, u16)) -> Self {
-        Self::Domain(domain.to_owned(), port)
+        if let Ok(ipaddr) = domain.parse::<IpAddr>() {
+            Self::Ip((ipaddr, port).into())
+        } else {
+            Self::Domain(domain.to_owned(), port)
+        }
     }
 }
 
