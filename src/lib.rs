@@ -4,7 +4,6 @@
 
 #![deny(missing_debug_implementations)]
 
-use async_trait::async_trait;
 use std::{
     fmt::Debug,
     io::Cursor,
@@ -78,7 +77,6 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 // Utilities
 // *****************************************************************************
 
-#[async_trait]
 trait ReadExt: AsyncReadExt + Unpin {
     async fn read_version(&mut self) -> Result<()> {
         let value = self.read_u8().await?;
@@ -240,10 +238,8 @@ trait ReadExt: AsyncReadExt + Unpin {
     }
 }
 
-#[async_trait]
 impl<T: AsyncReadExt + Unpin> ReadExt for T {}
 
-#[async_trait]
 trait WriteExt: AsyncWriteExt + Unpin {
     async fn write_version(&mut self) -> Result<()> {
         self.write_u8(0x05).await?;
@@ -343,7 +339,6 @@ trait WriteExt: AsyncWriteExt + Unpin {
     }
 }
 
-#[async_trait]
 impl<T: AsyncWriteExt + Unpin> WriteExt for T {}
 
 async fn username_password_auth<S>(stream: &mut S, auth: Auth) -> Result<()>
@@ -802,7 +797,6 @@ mod tests {
     type TestDatagram = SocksDatagram<TestStream>;
     type TestHalves = (Arc<TestDatagram>, Arc<TestDatagram>);
 
-    #[async_trait]
     trait UdpClient {
         async fn send_to<A>(&mut self, buf: &[u8], addr: A) -> Result<usize>
         where
@@ -811,7 +805,6 @@ mod tests {
         async fn recv_from(&mut self, buf: &mut [u8]) -> Result<(usize, AddrKind)>;
     }
 
-    #[async_trait]
     impl UdpClient for TestDatagram {
         async fn send_to<A>(&mut self, buf: &[u8], addr: A) -> Result<usize, Error>
         where
@@ -825,7 +818,6 @@ mod tests {
         }
     }
 
-    #[async_trait]
     impl UdpClient for TestHalves {
         async fn send_to<A>(&mut self, buf: &[u8], addr: A) -> Result<usize, Error>
         where
