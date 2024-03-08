@@ -674,9 +674,9 @@ where
         (self.stream, self.socket)
     }
 
-    async fn write_request(buf: &[u8], addr: AddrKind) -> Result<Vec<u8>> {
-        let bytes_size = Self::get_buf_size(addr.size(), buf.len());
-        let bytes = Vec::with_capacity(bytes_size);
+    async fn write_request(buf: &[u8], addr: AddrKind) -> Result<(Vec<u8>, usize)> {
+        let header_size = Self::get_header_size(addr.size());
+        let bytes = Vec::with_capacity(header_size + buf.len());
 
         let mut cursor = Cursor::new(bytes);
         cursor.write_reserved().await?;
@@ -686,7 +686,7 @@ where
         cursor.write_all(buf).await?;
 
         let bytes = cursor.into_inner();
-        Ok(bytes)
+        Ok((bytes, header_size))
     }
 
     pub async fn send_to<A>(&self, buf: &[u8], addr: A) -> Result<usize>
@@ -694,8 +694,8 @@ where
         A: Into<AddrKind>,
     {
         let addr: AddrKind = addr.into();
-        let bytes = Self::write_request(buf, addr).await?;
-        Ok(self.socket.send(&bytes).await?)
+        let (bytes, header_size) = Self::write_request(buf, addr).await?;
+        Ok(self.socket.send(&bytes).await? - header_size)
     }
 
     async fn read_response(
@@ -723,10 +723,13 @@ where
     }
 
     fn get_buf_size(addr_size: usize, buf_len: usize) -> usize {
+        Self::get_header_size(addr_size) + buf_len
+    }
+    #[inline]
+    fn get_header_size(addr_size: usize) -> usize {
         2 // reserved
                 + 1 // fragment id
                 + addr_size
-                + buf_len
     }
 }
 
